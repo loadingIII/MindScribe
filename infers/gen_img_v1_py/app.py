@@ -54,7 +54,7 @@ async def _read_reference_images(files: list[UploadFile]) -> list[ReferenceImage
 @app.post("/generate", response_model=CreateTaskResponse, status_code=status.HTTP_202_ACCEPTED)
 async def create_generation_task(
     background_tasks: BackgroundTasks,
-    prompt: str = Form(..., min_length=1),
+    prompt: str = Form(..., min_length=1, max_length=5000),
     reference_images: list[UploadFile] = File(...),
     model: str | None = Form(None),
     size: str | None = Form(None),
