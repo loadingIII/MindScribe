@@ -67,17 +67,17 @@ class OSSService:
         *,
         bucket=None,
     ) -> None:
-        """初始化服务；未传入 bucket 时根据配置创建 OSS SDK 客户端。"""
+        """初始化服务；未传入 bucket 时根据配置连接已有的 OSS Bucket。"""
         if config is None:
             config = load_config()
         if isinstance(config, (str, Path)):
             config = load_config(config)
         self.config = config if isinstance(config, OSSConfig) else OSSConfig.from_mapping(config)
-        self.bucket = bucket or self._create_bucket(self.config)
+        self.bucket = bucket or self._build_client(self.config)
 
     @staticmethod
-    def _create_bucket(config: OSSConfig):
-        """使用 OSS 访问密钥和端点创建 SDK 的 Bucket 客户端。"""
+    def _build_client(config: OSSConfig):
+        """使用配置连接已有 Bucket。"""
         try:
             import oss2
         except ImportError as exc:
@@ -91,11 +91,11 @@ class OSSService:
         return self.bucket.put_object(object_name, data, headers=headers)
 
     def upload_file(
-        self, file_path: str | Path, object_name: str | None = None, *, content_type: str | None = None
+        self, file_path: str | Path, object_name: str | None = None, *, prefix: str, content_type: str | None = None
     ):
         """读取本地文件并上传；未指定对象名时使用本地文件名。"""
         path = Path(file_path)
-        object_name = object_name or path.name
+        object_name = f"{prefix}/{object_name or path.name}"        #组装 OSS 对象名
         content_type = content_type or mimetypes.guess_type(path.name)[0]
         with path.open("rb") as stream:
             return self.upload_stream(object_name, stream, content_type=content_type)
