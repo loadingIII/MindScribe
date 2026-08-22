@@ -5,15 +5,11 @@
 """
 
 import asyncio
-import base64
-import random
-from datetime import datetime
-from pathlib import Path
 from urllib.parse import urlparse
 
 from openai import AsyncOpenAI, OpenAI
 
-from infers.gen_img_v1.storage import save_image_to_oss
+from infers.gen_img_v1_py.storage import save_image_to_oss
 
 
 def _validate_config(base_url: str, api_key: str) -> None:
@@ -55,8 +51,8 @@ def generate_img(
     quality: str = "auto",
     output_format: str = "png",
     images: list[str] = [],
-) -> Path:
-    """同步生成图片并保存到本地。"""
+) -> list[str]:
+    """同步调用模型生成图片，上传全部结果到 OSS 后返回 URL 列表。"""
     params = {
         "model": model,
         "prompt": prompt,
@@ -68,7 +64,7 @@ def generate_img(
     if images:
         params["extra_body"] = {"image": _validate_image_url(images)}
     response = client.images.generate(**params)
-    return save_image_to_oss(response.data[0].b64_json, output_format)  #上传至 OSS 并返回 URL
+    return [save_image_to_oss(image.b64_json, output_format) for image in response.data]
 
 
 async def async_generate_img(
@@ -80,8 +76,8 @@ async def async_generate_img(
     quality: str = "auto",
     output_format: str = "png",
     images: list[str] = [],
-) -> Path:
-    """异步生成图片，不阻塞 asyncio 事件循环。"""
+) -> list[str]:
+    """异步调用模型生成图片，并上传全部结果到 OSS 后返回 URL 列表。"""
     params = {
         "model": model,
         "prompt": prompt,
@@ -93,9 +89,10 @@ async def async_generate_img(
     if images:
         params["extra_body"] = {"image": _validate_image_url(images)}
     response = await client.images.generate(**params)
-    return await asyncio.to_thread(
-        save_image_to_oss, response.data[0].b64_json, output_format
-    )   #上传至 OSS 并返回 URL
+    return [
+        await asyncio.to_thread(save_image_to_oss, image.b64_json, output_format)
+        for image in response.data
+    ]
 
 
 if __name__ == "__main__":
