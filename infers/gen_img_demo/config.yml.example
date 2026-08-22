@@ -1,0 +1,15 @@
+# OpenAI 格式多模态模型配置
+# base_url 可替换为任何 OpenAI 兼容服务端点（如 Qwen-VL、vLLM 等）
+base_url: https://api.openai.com/v1
+api_key: sk-your-api-key-here
+
+# 图片理解（Vision）模型配置
+vision:
+  model: gpt-image-2
+
+# 图片生成（Image Generation）模型配置
+image_generation:
+  model: dall-e-3
+  size: 1024x1024
+  n: 1
+  quality: standard
