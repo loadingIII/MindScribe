@@ -10,12 +10,14 @@
   },
   "dependencies": {
     "@gsap/react": "latest",
-    "@vitejs/plugin-react": "latest",
     "gsap": "latest",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "react-router-dom": "latest",
+    "react-router-dom": "latest"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "latest",
     "vite": "latest"
   }
 }
