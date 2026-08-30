@@ -43,3 +43,5 @@ config.yml
 # OS files
 .DS_Store
 Thumbs.db
+
+app/ms_backend_java/

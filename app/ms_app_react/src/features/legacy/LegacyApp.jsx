@@ -7,10 +7,11 @@ import {
   ArrowDownToLine, ArrowRight, Bookmark, Check, ChevronDown, Clock3, Copy, Download,
   FileImage, FolderOpen, Heart, ImagePlus, Layers3, LayoutGrid, Maximize2, MessageCircle, MoreHorizontal,
   Palette, Plus, Search, Send, Settings2, Sparkles, Star, Trash2, UploadCloud, UserRound,
-  WandSparkles, X, Zap
+  WandSparkles, X, Zap, PanelRight, RotateCw
 } from "lucide-react";
 import { image } from "../../assets/mockData";
 import { useStore } from "../../store/AppStore";
+import { GEN_IMGS_SYSTEM_PROMPT } from "../../utils/prompts/gen_imgs_prompts";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -67,15 +68,22 @@ export function CreatePage() {
   // 渲染多模式生图工作台，并模拟异步生成任务。
   const { draft, setDraft, credits, setCredits, addLibraryWork, setToast } = useStore();
   const mode = "创作";
-  const [prompt, setPrompt] = useState(draft.prompt || "让雨后的花园在清晨醒来，湿润的石阶、透明椅子与一点柔软的蓝绿色光。画面像一张安静的编辑照片。");
+  const [prompt, setPrompt] = useState(draft.prompt || "");
   const [files, setFiles] = useState([]);
   const [count, setCount] = useState(1);
   const [status, setStatus] = useState("idle");
   const [results, setResults] = useState([]);
   const [promptFullscreen, setPromptFullscreen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [additionalSystemPrompt, setAdditionalSystemPrompt] = useState(draft.additionalSystemPrompt || "");
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const [taskThreads, setTaskThreads] = useState([
+    { id: "thr_demo_01", title: "晨雾里的玻璃温室", status: "已完成", createdAt: "今天 09:42", attempts: [{ id: "att_demo_01", label: "Attempt 01", status: "成功", progress: 100 }] },
+    { id: "thr_demo_02", title: "旧唱片店的黄昏", status: "失败", createdAt: "昨天 18:16", attempts: [{ id: "att_demo_02", label: "Attempt 01", status: "失败", progress: 100 }, { id: "att_demo_03", label: "Attempt 02", status: "成功", progress: 100 }] }
+  ]);
   const richPromptRef = useRef(null);
   const promptRef = useRef(null);
   const canvasRef = useRef(null);
@@ -116,14 +124,20 @@ export function CreatePage() {
     if (!prompt.trim() || status !== "idle") return;
     const spend = count * (mode === "批量出图" ? 24 : 12);
     if (credits < spend) { setToast("算力不足，请前往个人中心查看权益"); return; }
-    setDraft({ ...draft, prompt, mode }); setCredits(credits - spend); setStatus("queued"); setResults([]);
-    setTimeout(() => setStatus("working"), 850);
+    const thread = { id: `thr_${Date.now()}`, title: getPromptExcerpt(prompt, 28), status: "排队中", createdAt: "刚刚", attempts: [{ id: `att_${Date.now()}`, label: "Attempt 01", status: "排队中", progress: 12 }] };
+    setTaskThreads((items) => [thread, ...items]); setTasksOpen(true);
+    setDraft({ ...draft, prompt, mode, additionalSystemPrompt }); setCredits(credits - spend); setStatus("queued"); setResults([]);
+    setTimeout(() => { setStatus("working"); setTaskThreads((items) => items.map((item) => item.id === thread.id ? { ...item, status: "生成中", attempts: item.attempts.map((attempt) => ({ ...attempt, status: "生成中", progress: 64 })) } : item)); }, 850);
     setTimeout(() => {
       const next = Array.from({ length: count }, (_, index) => ({ id: crypto.randomUUID(), image: image(`generated-${Date.now()}-${index}`), title: `${mode} · ${index + 1}`, version: "初稿" }));
-      setResults(next); setStatus("done");
+      setResults(next); setStatus("done"); setTaskThreads((items) => items.map((item) => item.id === thread.id ? { ...item, status: "已完成", attempts: item.attempts.map((attempt) => ({ ...attempt, status: "成功", progress: 100 })) } : item));
       next.forEach((result) => addLibraryWork({ id: result.id, title: result.title, image: result.image, status: "已完成", createdAt: "刚刚", prompt, model: draft.model || "gpt-image-2", versions: ["初稿"] }));
       setToast("作品已加入素材库");
     }, 2800);
+  }
+
+  function retryThread(threadId) {
+    setTaskThreads((items) => items.map((item) => item.id === threadId ? { ...item, status: "重试中", attempts: [...item.attempts, { id: `att_${Date.now()}`, label: `Attempt ${String(item.attempts.length + 1).padStart(2, "0")}`, status: "排队中", progress: 18 }] } : item));
   }
 
   function syncRichPrompt() {
@@ -172,15 +186,14 @@ export function CreatePage() {
 
 
   return <section className="create-page" ref={canvasRef}>
-    <div className="create-intro"><div><h1>开始创作</h1><p>把灵感交给画面。</p></div></div>
-    <div className="creation-note"><span>提示词创作</span><small>参考图、文字和参数会一起决定画面</small></div>
+    <div className="create-intro"><button className="task-trigger" type="button" onClick={() => setTasksOpen((open) => !open)}><PanelRight size={16} />任务 <span>{taskThreads.length}</span></button></div>
     <div className="studio-grid">
       <section className="creation-controls">
         <div className="control-title"><span>参考图</span><small>可选 · 最多 4 张</small></div>
         <div className={`reference-strip ${files.length ? "has-files" : "empty"}`} onDragOver={(event) => event.preventDefault()} onDrop={dropReferences}>{files.map((item) => <div className="reference-item" key={item.id}><img src={item.url} alt={item.file.name} /><div className="reference-caption"><span>{item.file.name}</span><button onClick={() => removeReference(item.id)} title="移除参考图"><X size={13} /></button></div></div>)}{files.length < 4 && <label className="reference-add"><ImagePlus size={24} /><div><b>{files.length ? "继续添加" : "添加参考图"}</b><small>{files.length ? `${files.length}/4 张` : "点击或拖拽图片到这里"}</small></div><input type="file" accept="image/*" multiple onChange={(event) => addReferences(event.target.files)} /></label>}</div>
         <div className="prompt-editor"><div className="prompt-editor-head"><span>你的构想</span><div><small className="prompt-hint">输入 @ 关联参考图</small><button type="button" onClick={() => setPromptFullscreen(true)} title="全屏查看提示词"><Maximize2 size={15} /></button></div></div><div ref={richPromptRef} className="rich-prompt" contentEditable suppressContentEditableWarning onInput={syncRichPrompt} onKeyDown={(event) => { if (!mentionOpen || !mentionCandidates.length) { if (event.key === "Escape") setMentionOpen(false); return; } if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setMentionIndex((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + mentionCandidates.length) % mentionCandidates.length); } else if (event.key === "Enter") { event.preventDefault(); insertMention(mentionCandidates[mentionIndex]); } else if (event.key === "Escape") setMentionOpen(false); }} data-placeholder="写下你的创作构想…" />{mentionOpen && mentionCandidates.length > 0 && <div className="mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择，Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>[{files.findIndex((file) => file.id === item.id) + 1}:{referenceLabel(item.file.name)}]</span><kbd>{index + 1}</kbd></button>)}</div>}<small className="prompt-count">{prompt.length}/5000</small></div>
         <div className="control-fields"><SelectField label="模型" value={draft.model || "gpt-image-2"} options={["gpt-image-2", "dall-e-3"]} onChange={(value) => setDraft({ ...draft, model: value })} /><SelectField label="比例" value={draft.size || "1024×1024"} options={["1024×1024", "1024×1536", "1536×1024"]} onChange={(value) => setDraft({ ...draft, size: value })} /><SelectField label="质量" value="高" options={["标准", "高"]} onChange={() => {}} /><SelectField label="数量" value={String(count)} options={["1", "2", "3", "4"]} onChange={(value) => setCount(Number(value))} /></div>
-        <div className="control-footer"><button className="plain-button"><Settings2 size={15} />高级参数</button><button className="create-button" onClick={startGeneration} disabled={status !== "idle" || !prompt.trim()}><WandSparkles size={17} />{status === "idle" ? "开始生成" : status === "queued" ? "正在排队" : status === "working" ? "正在生成" : "已生成"}</button></div>
+        <div className="control-footer"><button className="plain-button" type="button" onClick={() => setAdvancedOpen(true)}><Settings2 size={15} />高级参数</button><button className="create-button" onClick={startGeneration} disabled={status !== "idle" || !prompt.trim()}><WandSparkles size={17} />{status === "idle" ? "开始生成" : status === "queued" ? "正在排队" : status === "working" ? "正在生成" : "已生成"}</button></div>
       </section>
       <section className="creation-canvas">
         <div className="canvas-label"><span>{mode}</span><span>{status === "done" ? "交付完成" : "图像实验室"}</span></div>
@@ -190,8 +203,23 @@ export function CreatePage() {
         <div className="canvas-status"><span>消耗 {count * (mode === "批量出图" ? 24 : 12)} 算力</span><span>{files.length ? `${files.length} 张参考图已就绪` : "无需参考图也可创作"}</span></div>
       </section>
     </div>
+    {tasksOpen && <TaskDrawer threads={taskThreads} onClose={() => setTasksOpen(false)} onRetry={retryThread} />}
     {promptFullscreen && <PromptFullscreen value={prompt} onChange={setPrompt} onClose={() => setPromptFullscreen(false)} />}
+    {advancedOpen && <AdvancedPromptModal value={additionalSystemPrompt} basePrompt={GEN_IMGS_SYSTEM_PROMPT} onChange={setAdditionalSystemPrompt} onClose={() => setAdvancedOpen(false)} onSave={() => { setDraft({ ...draft, additionalSystemPrompt }); setAdvancedOpen(false); setToast("系统提示词追加内容已保存"); }} />}
   </section>;
+}
+
+function AdvancedPromptModal({ value, basePrompt, onChange, onClose, onSave }) {
+  return <Modal title="高级参数" onClose={onClose}><div className="advanced-prompt-form"><label><span>原始系统提示词</span><textarea value={basePrompt} readOnly /></label><label><span>追加系统提示词</span><textarea autoFocus value={value} onChange={(event) => onChange(event.target.value)} placeholder="例如：画面保持极简构图，使用柔和自然光。" /></label><p>你填写的内容会追加到原始系统提示词之后，不会覆盖原提示词。</p><button className="primary-action" onClick={onSave}>保存设置</button></div></Modal>;
+}
+
+function TaskDrawer({ threads, onClose, onRetry }) {
+  const [expanded, setExpanded] = useState(threads[0]?.id);
+  const [selectedAttempt, setSelectedAttempt] = useState(threads[0]?.attempts.at(-1)?.id);
+  const selectedThread = threads.find((thread) => thread.id === expanded) || threads[0];
+  const attempt = selectedThread?.attempts.find((item) => item.id === selectedAttempt) || selectedThread?.attempts.at(-1);
+  useEffect(() => { if (threads[0]?.id) { setExpanded(threads[0].id); setSelectedAttempt(threads[0].attempts.at(-1)?.id); } }, [threads]);
+  return <aside className="task-drawer" aria-label="生成任务"><header><h2>任务</h2><button type="button" onClick={onClose} title="关闭任务栏"><X size={18} /></button></header><div className="task-drawer-body"><nav className="thread-list" aria-label="Thread 列表">{threads.map((thread) => <button className={`thread-card ${thread.id === selectedThread?.id ? "selected" : ""}`} key={thread.id} type="button" onClick={() => { setExpanded(thread.id); setSelectedAttempt(thread.attempts.at(-1)?.id); }}><span className="thread-icon"><Layers3 size={15} /></span><span className="thread-info"><b>{thread.title}</b><small>{thread.createdAt}</small></span><span className={`thread-status status-${thread.status}`}>{thread.status}</span></button>)}</nav>{selectedThread && <section className="attempt-detail"><div className="detail-kicker">{selectedThread.title}</div><h3>{attempt?.label}</h3><p className="detail-status">{attempt?.status}</p><div className="detail-progress"><span style={{ width: `${attempt?.progress || 0}%` }} /></div><dl><div><dt>提示词</dt><dd>{getPromptExcerpt(selectedThread.title, 80)}</dd></div><div><dt>模型</dt><dd>gpt-image-2</dd></div><div><dt>创建时间</dt><dd>{selectedThread.createdAt}</dd></div></dl><div className="attempt-history"><span>执行记录</span>{selectedThread.attempts.map((item) => <button className={item.id === attempt?.id ? "active" : ""} key={item.id} type="button" onClick={() => setSelectedAttempt(item.id)}><b>{item.label}</b><em>{item.status}</em></button>)}</div><button className="retry-button" type="button" onClick={() => onRetry(selectedThread.id)}><RotateCw size={13} />再次尝试</button></section>}</div></aside>;
 }
 
 function PromptFullscreen({ value, onChange, onClose }) {
