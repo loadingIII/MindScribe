@@ -9,5 +9,13 @@ import PromptsPage from "./pages/PromptsPage";
 
 /** 将页面功能装配到带全局导航的路由壳中。 */
 export default function App() {
-  return <Routes><Route element={<AppShell />}><Route path={ROUTES.create} element={<CreatePage />} /><Route path={ROUTES.prompts} element={<PromptsPage />} /><Route path={ROUTES.library} element={<LibraryPage />} /><Route path={ROUTES.community} element={<CommunityPage />} /><Route path={ROUTES.profile} element={<ProfilePage />} /><Route path="/" element={<Navigate to={ROUTES.create} replace />} /></Route></Routes>;
+  return <Routes>
+    <Route element={<AppShell />}>
+      <Route path={ROUTES.create} element={<CreatePage />} />
+      <Route path={ROUTES.prompts} element={<PromptsPage />} />
+      <Route path={ROUTES.library} element={<LibraryPage />} />
+      <Route path={ROUTES.community} element={<CommunityPage />} />
+      <Route path={ROUTES.profile} element={<ProfilePage />} />
+      <Route path="/" element={<Navigate to={ROUTES.create} replace />} />
+    </Route></Routes>;
 }
