@@ -12,8 +12,7 @@ from typing import Mapping
 from .config import config as app_config
 from .open_ai import async_generate_img, get_async_client
 from .prompt_mapping import build_prompt
-from .schemas import GenerateOptions, ReferenceImage, TaskResponse, TaskStatus
-from .storage import upload_reference_image
+from .schemas import GenerateOptions, TaskResponse, TaskStatus
 
 
 @dataclass
@@ -76,23 +75,12 @@ class ImageGenerationService:
         self,
         task_id: str,
         prompt: str,
-        reference_images: list[ReferenceImage],
+        reference_images: list[str],
         options: GenerateOptions,
     ) -> None:
         """执行上传参考图、生成图片和上传结果的完整异步任务流程。"""
         self._set_running(task_id)
         try:
-            reference_urls = await asyncio.gather(
-                *[
-                    asyncio.to_thread(
-                        upload_reference_image,
-                        image.filename,
-                        image.content,
-                        image.content_type,
-                    )
-                    for image in reference_images
-                ]
-            )
             image_urls = await async_generate_img(
                 self._create_openai_client(),
                 build_prompt(prompt),
@@ -101,7 +89,7 @@ class ImageGenerationService:
                 size=options.size,
                 quality=options.quality,
                 output_format=options.output_format,
-                images=reference_urls,
+                images=reference_images,
             )
             self._set_succeeded(task_id, image_urls)
         except Exception as exc:
@@ -132,4 +120,3 @@ class ImageGenerationService:
             record = self._tasks[task_id]
             record.status = TaskStatus.FAILED
             record.error = error or "图片生成失败"
-
