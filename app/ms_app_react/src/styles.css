@@ -23,6 +23,14 @@
 @media (max-width:1180px) { .app-frame { grid-template-columns:185px minmax(0,1fr); }.side-nav { width:185px; }.content-page,.create-page { padding-left:34px; padding-right:34px; }.page-heading h1,.create-intro h1 { font-size:48px; }.prompt-grid,.archive-grid,.feed-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }.prompt-layout { grid-template-columns:minmax(0,1fr) 210px; }.community-feed { grid-template-columns:180px minmax(0,1fr); }.community-bento { grid-template-rows:170px 170px; }.bento-hero h2 { font-size:28px; } }
 @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; animation-duration:.01ms!important; transition-duration:.01ms!important; } }
 
+/* 登录页：保留工作台的纸面与荧光绿，只把入口收束成安静的编辑台。 */
+.login-page { position:relative; display:grid; min-height:100vh; place-items:center; overflow:hidden; color:var(--ink); background:#e9e8df; }
+.login-page::before { content:""; position:absolute; inset:0; opacity:.34; background-image:linear-gradient(rgba(37,40,33,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(37,40,33,.06) 1px,transparent 1px); background-size:48px 48px; mask-image:linear-gradient(110deg,#000,transparent 75%); }
+.login-atmosphere span { position:absolute; display:block; border-radius:50%; filter:blur(1px); opacity:.72; animation:login-float 9s ease-in-out infinite; }.login-atmosphere span:nth-child(1) { width:310px; height:310px; top:-120px; right:10%; background:rgba(201,223,97,.35); }.login-atmosphere span:nth-child(2) { width:180px; height:180px; bottom:12%; left:8%; background:rgba(140,184,212,.23); animation-delay:-3s; }.login-atmosphere span:nth-child(3) { width:90px; height:90px; top:33%; left:22%; background:rgba(233,128,104,.18); animation-delay:-6s; }
+.login-panel { position:relative; z-index:1; width:min(450px,calc(100vw - 48px)); padding:38px 42px 28px; border:1px solid rgba(43,48,37,.13); background:rgba(255,253,248,.84); box-shadow:0 30px 90px rgba(43,48,37,.14); backdrop-filter:blur(18px); animation:login-rise .7s cubic-bezier(.22,.8,.25,1) both; }.login-brand { display:flex; align-items:center; gap:7px; color:var(--ink); font:13px var(--mono); letter-spacing:.08em; }.login-brand span { display:grid; width:30px; height:30px; place-items:center; border-radius:50%; color:var(--ink); background:var(--lime); }.login-brand i { color:var(--mist); font-style:normal; }.login-copy { margin:58px 0 34px; }.login-copy small { color:#7b8926; font:10px var(--mono); letter-spacing:.13em; }.login-copy h1 { margin:14px 0 13px; font:600 clamp(37px,5vw,54px)/1.14 var(--serif); letter-spacing:-.06em; }.login-copy h1 em { color:#899c23; font-style:normal; }.login-copy p { max-width:310px; margin:0; color:var(--mist); font-size:12px; line-height:1.8; }.login-form { display:grid; gap:19px; }.login-form label { display:grid; gap:8px; color:var(--mist); font:10px var(--mono); letter-spacing:.05em; }.login-form input { width:100%; height:40px; padding:0 0 9px; color:var(--ink); border:0; border-bottom:1px solid rgba(43,48,37,.2); outline:0; background:transparent; font:13px var(--sans); }.login-form input:focus { border-bottom-color:#91a42d; }.login-password { display:flex; align-items:center; gap:8px; border-bottom:1px solid rgba(43,48,37,.2); }.login-password svg { color:#8a927f; }.login-password input { border-bottom:0; }.login-error { margin:-6px 0 0; color:#b35e4e; font-size:11px; }.login-submit { display:flex; align-items:center; justify-content:space-between; min-height:46px; margin-top:4px; padding:0 15px 0 18px; color:var(--ink); background:var(--lime); font-size:12px; font-weight:700; transition:transform .25s ease,background .25s ease; }.login-submit:hover:not(:disabled) { background:#eff9a1; transform:translateY(-2px); }.login-submit:disabled { cursor:wait; opacity:.62; }.login-panel footer { margin-top:62px; color:#9ba092; font:9px var(--mono); letter-spacing:.04em; }
+@keyframes login-rise { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:none; } } @keyframes login-float { 0%,100% { transform:translate3d(0,0,0); } 50% { transform:translate3d(0,16px,0); } }
+.logout-button { padding:7px 8px; color:var(--mist); border:1px solid var(--line); background:transparent; text-align:left; font-size:10px; }.logout-button:hover { color:var(--coral); border-color:rgba(233,128,104,.35); }
+
 /* 生成任务抽屉：Thread 是一次创作，Attempt 是该创作的每次执行记录。 */
 .task-trigger { display:flex; align-items:center; gap:8px; padding:10px 13px; color:var(--ink); border:1px solid #d9d9ce; border-radius:12px; background:rgba(255,253,248,.7); font-size:11px; font-weight:700; box-shadow:0 5px 14px rgba(52,58,42,.05); }
 .create-page > .create-intro { position:fixed; z-index:11; top:17px; right:244px; display:flex; justify-content:flex-end; margin:0; }
@@ -40,6 +48,25 @@
 
 /* 任务栏收敛为 Thread 导航 + 单个 Attempt 详情，减少无效说明文字。 */
 .task-drawer { width:min(620px,calc(100vw - 270px)); padding:20px; }
+.task-rail { left: 0; right: auto; width: 250px; border-radius: 0 18px 18px 0; resize: horizontal; overflow: auto; }
+.attempt-rail { right: 0; width: 280px; border-radius: 18px 0 0 18px; resize: horizontal; overflow: auto; }
+.rail-resizer { position:absolute; top:0; bottom:0; right:-4px; width:8px; cursor:ew-resize; z-index:2; }
+.rail-resizer-left { right:auto; left:-4px; }
+.create-intro { display:flex; justify-content:flex-end; gap:10px; }
+.result-trigger { margin-left:0; }
+.create-intro { position: absolute; z-index: 30; top: -76px; right: 28px; }
+.task-trigger { min-width: 92px; }
+.app-frame:has(.task-rail) .side-nav { display: none; }
+.app-frame:has(.task-rail) .app-main { margin-left: 0; }
+.app-frame:has(.task-rail) .task-rail { top: 0; bottom: 0; }
+.app-frame:has(.attempt-rail) .attempt-rail { top: 0; bottom: 0; }
+.create-page.has-task-rail { padding-left: 250px; }
+.create-page.has-attempt-rail { padding-right: 280px; }
+.attempt-rail-body { overflow:auto; padding-top:16px; }
+.attempt-rail-item { display:grid; gap:8px; padding:12px 0; border-bottom:1px solid var(--line); }
+.attempt-rail-item>div { display:flex; justify-content:space-between; font-size:11px; }
+.attempt-rail-item span { color:var(--mist); }
+.attempt-rail-item img { width:100%; border-radius:10px; }
 .task-drawer header { align-items:center; padding-bottom:14px; }.task-drawer h2 { margin:0; font-size:24px; }.task-drawer header>button { width:30px; height:30px; }
 .task-drawer-body { display:grid; grid-template-columns:205px minmax(0,1fr); gap:18px; min-height:0; flex:1; padding-top:16px; }
 .task-drawer .thread-list { align-content:start; gap:7px; overflow:auto; padding:0; }
@@ -362,7 +389,8 @@ body { color:var(--ink); background:radial-gradient(circle at 84% 0%,rgba(201,22
 .prompt-editor-head button { display:grid; width:26px; height:26px; place-items:center; color:var(--mist); background:transparent; }
 .prompt-hint { color:var(--muted); font:10px var(--mono); letter-spacing:0; }
 .prompt-editor-head .prompt-hint { position:relative !important; right:auto !important; bottom:auto !important; display:inline-block; }
-.rich-prompt { min-height:118px; max-height:240px; margin-top:7px; padding:2px 28px 28px 0; overflow-y:auto; outline:0; color:var(--ink); font:500 16px/1.78 var(--serif); white-space:pre-wrap; word-break:break-word; }
+.rich-prompt { min-height:118px; max-height:240px; margin-top:7px; padding:2px 28px 28px 0; overflow-y:auto; scrollbar-width:none; -ms-overflow-style:none; outline:0; color:var(--ink); font:500 16px/1.78 var(--serif); white-space:pre-wrap; word-break:break-word; }
+.rich-prompt::-webkit-scrollbar { width:0; height:0; display:none; }
 .rich-prompt:empty:before { content:attr(data-placeholder); color:#92958a; pointer-events:none; }
 .mention-chip { display:inline-block; margin:0 3px; padding:2px 9px; color:#5b2a86; border:1px solid #c8a0ee; border-radius:6px; background:#ead8ff; font:600 12px/1.6 var(--sans); vertical-align:baseline; box-shadow:0 1px 0 rgba(91,42,134,.15); }
 .mention-menu { position:absolute; z-index:20; right:0; bottom:40px; width:250px; padding:8px; border:1px solid #d2d4c8; border-radius:12px; background:#fffdf7; box-shadow:0 16px 35px rgba(45,48,35,.18); }
@@ -413,6 +441,257 @@ body { color:var(--ink); background:radial-gradient(circle at 84% 0%,rgba(201,22
   .prompt-editor textarea { min-height:72px; }
   .control-fields { padding:15px 0; gap:12px 20px; }
 }
+
+/* 三栏创作工作区：任务与结果都在页面内占位，不使用浮层。 */
+.app-frame:has(.task-rail) {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+.app-frame:has(.task-rail) .side-nav { display: none; }
+.app-frame:has(.task-rail) .app-main { grid-column: 2; }
+.create-page.has-task-rail { padding-left: calc(var(--task-width) + clamp(25px, 3vw, 48px)); }
+.create-page.has-attempt-rail { padding-right: calc(var(--result-width) + clamp(25px, 3vw, 48px)); }
+.create-page > .create-intro {
+  position: static;
+  display: block;
+  margin: 0;
+}
+.create-page > .create-intro .task-trigger:first-child,
+.create-page > .create-intro .result-trigger {
+  position: fixed;
+  z-index: 31;
+  top: 17px;
+}
+.create-page > .create-intro .task-trigger:first-child { left: 174px; }
+.create-page > .create-intro .result-trigger { right: 28px; }
+.app-frame:has(.attempt-rail) .create-page > .create-intro .result-trigger { right: calc(var(--result-width) + 18px); }
+.create-topbar > strong { margin-left: 0; }
+.app-frame:has(.task-rail) .create-page > .create-intro .task-trigger:first-child { left: calc(var(--task-width) + 18px); }
+.app-frame:has(.task-rail) .create-topbar > strong { margin-left: calc(var(--task-width) + 20px); }
+.task-trigger { min-width: 84px; justify-content: center; }
+.workspace-rail-controls { pointer-events: none; }
+.workspace-rail-controls .task-trigger { pointer-events: auto; }
+.task-trigger {
+  min-width: 96px;
+  height: 40px;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 10px 0 8px;
+  border: 1px solid rgba(61, 68, 48, .12);
+  border-radius: 13px;
+  color: #596052;
+  background: rgba(255, 253, 248, .92);
+  box-shadow: 0 7px 18px rgba(52, 58, 42, .08);
+  transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease, background .2s ease;
+}
+.task-trigger:hover,
+.task-trigger.is-open {
+  border-color: rgba(130, 150, 38, .42);
+  color: var(--ink);
+  background: #fffdf8;
+  box-shadow: 0 10px 24px rgba(52, 58, 42, .13);
+  transform: translateY(-1px);
+}
+.task-trigger .rail-button-icon { display:grid; width:24px; height:24px; min-width:24px; flex:0 0 24px; place-items:center; color:#6d821c; border-radius:8px; background:#edf2c9; }
+.task-trigger .rail-button-label { display:block; min-width:0; height:auto; padding:0; color:inherit; font-size:11px; font-weight:700; letter-spacing:.02em; background:transparent; }
+.task-trigger .rail-button-count { display:grid; min-width:19px; width:auto; height:19px; margin-left:auto; padding:0 5px; place-items:center; color:#5e6f15; border-radius:99px; background:#dce990; font:10px var(--mono); }
+.task-rail.task-drawer {
+  position: fixed;
+  z-index: 26;
+  inset: 0 auto 0 0;
+  width: var(--task-width, 250px);
+  padding: 22px 18px 18px;
+  border: 0;
+  border-right: 1px solid rgba(43,48,37,.09);
+  border-radius: 0 24px 24px 0;
+  box-shadow: 16px 0 45px rgba(52,58,42,.1);
+  animation: rail-in-left .28s ease both;
+}
+.task-rail .rail-resizer { right: -4px; left: auto; }
+.attempt-rail.task-drawer {
+  position: fixed;
+  z-index: 26;
+  inset: 72px 0 0 auto;
+  width: var(--result-width, 280px);
+  padding: 22px 18px 18px;
+  border: 0;
+  border-left: 1px solid rgba(43,48,37,.09);
+  border-radius: 24px 0 0 0;
+  box-shadow: -16px 0 45px rgba(52,58,42,.1);
+  animation: rail-in-right .28s ease both;
+}
+.task-rail .task-drawer-body { grid-template-columns: minmax(0, 1fr); }
+.task-rail .attempt-detail { padding: 18px 0 0; border-top: 1px solid var(--line); border-left: 0; }
+.attempt-rail .attempt-rail-body { flex: 1; min-height: 0; overflow: auto; }
+@keyframes rail-in-left { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: none; } }
+@keyframes rail-in-right { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+
+/* 工作区控制器：贴在三栏分界线上，像编辑器工具而不是悬浮弹窗。 */
+.workspace-rail-controls { position: static; }
+.workspace-rail-controls .workspace-dock-button { pointer-events: auto; }
+.workspace-dock-button {
+  position: fixed;
+  z-index: 32;
+  top: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  min-width: 104px;
+  padding: 0 10px 0 8px;
+  color: #596052;
+  border: 1px solid rgba(61,68,48,.13);
+  border-radius: 14px;
+  background: rgba(255,253,248,.94);
+  box-shadow: 0 8px 22px rgba(52,58,42,.09);
+  font-size: 11px;
+  font-weight: 700;
+  transition: border-color .2s ease, background .2s ease, box-shadow .2s ease, transform .2s ease;
+}
+.workspace-dock-button:first-child { left: 174px; }
+.workspace-dock-button.result-trigger { right: 28px; }
+.workspace-dock-button:hover,
+.workspace-dock-button.is-open { color: var(--ink); border-color: rgba(125,145,33,.5); background: #fffdf8; box-shadow: 0 11px 28px rgba(52,58,42,.14); transform: translateY(-1px); }
+.workspace-dock-button .dock-glyph { display:grid; width:25px; height:25px; place-items:center; color:#6d821c; border-radius:8px; background:#edf2c9; }
+.workspace-dock-button b { display:grid; min-width:20px; height:20px; margin-left:auto; padding:0 5px; place-items:center; color:#607116; border-radius:99px; background:#dce990; font:10px var(--mono); }
+.app-frame:has(.task-rail) .workspace-dock-button:first-child { left: calc(var(--task-width) + 18px); }
+.app-frame:has(.attempt-rail) .workspace-dock-button.result-trigger { right: calc(var(--result-width) + 18px); }
+
+/* 新任务栏：列表和当前 Attempt 详情垂直编排，信息优先，空白只用于分组。 */
+.task-rail.task-drawer { width: var(--task-width, 300px); padding: 22px 16px 18px; border-right: 1px solid rgba(43,48,37,.1); border-radius: 0 22px 22px 0; background: #fbfaf4; box-shadow: 18px 0 48px rgba(52,58,42,.12); }
+.task-rail .task-drawer-body { display:flex; flex-direction:column; gap: 15px; padding-top: 16px; }
+.task-rail .thread-list { flex: 0 0 auto; max-height: 43%; padding: 0 2px 12px; border-bottom: 1px solid var(--line); }
+.task-rail .thread-card { display:grid; grid-template-columns:30px minmax(0,1fr) auto; align-items:center; gap:9px; min-height:58px; padding:8px 9px; border:1px solid transparent; border-radius:12px; background:transparent; text-align:left; }
+.task-rail .thread-card:hover { background:#f1f3e5; }
+.task-rail .thread-card.selected { border-color:#d4dda2; background:#eef2d6; box-shadow:0 4px 12px rgba(104,122,35,.08); }
+.task-rail .thread-icon { width:30px; height:30px; border-radius:9px; color:#6e841b; background:#e4ebbb; }
+.task-rail .thread-status { font-size:9px; }
+.task-rail .attempt-detail { flex:1; min-height:0; overflow:auto; padding: 3px 6px 0 2px; border:0; }
+.task-rail .attempt-detail h3 { margin:10px 0 3px; font-size:30px; letter-spacing:-.04em; }
+.task-rail .attempt-detail dl { margin:20px 0; }
+.task-rail .attempt-history { margin-top: 20px; }
+
+/* 新结果栏：以输出缩略图为主体，顶部只保留标题和关闭动作。 */
+.attempt-rail.task-drawer { width: var(--result-width, 320px); padding: 22px 17px 18px; border-left: 1px solid rgba(43,48,37,.1); border-radius: 22px 0 0 0; background:#fbfaf4; box-shadow:-18px 0 48px rgba(52,58,42,.11); }
+.attempt-rail .attempt-rail-body { padding-top: 16px; }
+.attempt-rail .detail-kicker { padding-bottom: 13px; border-bottom: 1px solid var(--line); }
+.attempt-rail-item { gap:10px; padding:16px 0; }
+.attempt-rail-item>div { align-items:center; }
+.attempt-rail-item>div b { font-size:12px; }
+.attempt-rail-item>div span { padding:4px 7px; border-radius:99px; background:#e5ecbb; color:#61731a; font-size:9px; }
+.attempt-rail-item img { border-radius:12px; border:1px solid rgba(43,48,37,.1); background:#ecebe3; }
+.attempt-rail .retry-button { margin-top: 15px; min-height: 38px; border-radius: 11px; }
+
+/* 合并任务与结果：单一工作区侧栏，内部以 tabs 切换。 */
+.app-frame:has(.unified-rail) { grid-template-columns: 236px minmax(0, 1fr); }
+.app-frame:has(.unified-rail) .side-nav { display:flex; }
+.create-page.has-workspace-rail { padding-right: calc(var(--workspace-width) + clamp(25px, 3vw, 48px)); padding-left: clamp(25px, 3vw, 48px); }
+.app-frame:has(.unified-rail) .create-topbar > strong { margin-left: 0; }
+.app-frame:has(.unified-rail) .workspace-dock-button:first-child { left:auto; right:calc(var(--workspace-width) + 18px); }
+.unified-rail { position:fixed; z-index:35; inset:0 0 0 auto; display:flex; flex-direction:column; min-width:280px; max-width:560px; padding:25px 15px 17px; border-left:1px solid rgba(43,48,37,.08); border-radius:22px 0 0 22px; background:rgba(244,243,237,.96); box-shadow:-18px 0 55px rgba(54,60,43,.08); backdrop-filter:blur(18px); animation:rail-in-right .28s ease both; }
+.unified-resizer { position:absolute; inset:0 auto 0 -5px; width:10px; cursor:ew-resize; }
+.unified-header { display:flex; align-items:flex-start; justify-content:space-between; padding:0 2px 14px; border-bottom:1px solid var(--line); }
+.unified-header span { color:#84922d; font:10px var(--mono); letter-spacing:.13em; }
+.unified-header h2 { margin:4px 0 0; font:600 27px var(--serif); letter-spacing:-.04em; }
+.unified-header button { display:grid; width:30px; height:30px; place-items:center; border-radius:50%; color:var(--mist); background:#f0efe8; }
+.unified-tabs { display:grid; grid-template-columns:1fr 1fr; gap:5px; margin:14px 0 4px; padding:4px; border-radius:12px; background:#eeeee6; }
+.unified-tabs button { display:flex; align-items:center; justify-content:center; gap:7px; min-height:34px; color:#7b8175; border-radius:9px; background:transparent; font-size:11px; font-weight:700; }
+.unified-tabs button.active { color:var(--ink); background:#fffdf8; box-shadow:0 3px 10px rgba(52,58,42,.09); }
+.unified-tabs b { display:grid; min-width:17px; height:17px; padding:0 4px; place-items:center; border-radius:99px; color:#61731a; background:#dce990; font:9px var(--mono); }
+.unified-content { display:flex; min-height:0; flex:1; }
+.unified-content > .task-drawer.embedded-drawer { position:static; inset:auto; width:100%; min-width:0; max-width:none; padding:0; border:0; border-radius:0; box-shadow:none; background:transparent; animation:none; }
+.unified-content > .task-drawer.embedded-drawer .task-drawer-body { padding-top:12px; }
+.unified-content > .attempt-rail.embedded-drawer { position:static; inset:auto; width:100%; min-width:0; max-width:none; padding:0; border:0; border-radius:0; box-shadow:none; background:transparent; animation:none; }
+.unified-content > .attempt-rail.embedded-drawer .attempt-rail-body { padding-top:12px; }
+.workspace-back { display:inline-flex; align-items:center; gap:5px; margin-bottom:9px; padding:0; color:#71851d; background:transparent; font-size:10px; font-weight:700; }
+.workspace-back svg { transform:rotate(180deg); }
+.workspace-back.icon-only { width:30px; height:30px; margin:0 0 10px; justify-content:center; border-radius:50%; background:#f0efe8; }
+.workspace-back.icon-only:hover { color:var(--ink); background:#e5e5db; }
+.unified-header { position:relative; display:block; min-height:92px; padding:0 2px 16px; }
+.unified-header .workspace-back { margin:0 0 14px; }
+.workspace-heading { display:grid; gap:5px; }
+.workspace-heading span { color:#84922d; font:10px var(--mono); letter-spacing:.13em; }
+.workspace-heading h2 { margin:0; font:600 30px/1.1 var(--serif); letter-spacing:-.045em; }
+.unified-header .workspace-close { position:absolute; top:3px; right:0; }
+.unified-header .workspace-heading h2 { font-size:28px; }
+
+/* 工作区入口固定在视口右上角，避免随侧栏宽度跳动。 */
+.workspace-dock-button:first-child,
+.app-frame:has(.unified-rail) .workspace-dock-button:first-child {
+  top: 14px;
+  right: 22px;
+  left: auto;
+  min-width: 120px;
+  height: 44px;
+  padding: 0 11px 0 9px;
+  border-radius: 15px;
+  border-color: rgba(61,68,48,.14);
+  background: rgba(255,253,248,.96);
+  box-shadow: 0 9px 24px rgba(52,58,42,.11);
+}
+.workspace-dock-button:first-child:hover,
+.workspace-dock-button:first-child.is-open {
+  border-color: rgba(125,145,33,.52);
+  box-shadow: 0 12px 28px rgba(52,58,42,.16);
+}
+.workspace-dock-button:first-child .dock-glyph { width:27px; height:27px; border-radius:9px; }
+.workspace-dock-button:first-child > span:not(.dock-glyph) { letter-spacing:.04em; }
+
+/* 任务视图只展示任务列表；Attempt 详情属于结果视图，不在这里重复展示。 */
+.unified-content > .task-drawer.embedded-drawer .attempt-detail { display: none; }
+.unified-content > .task-drawer.embedded-drawer .thread-list { max-height: none; flex: 1; border-bottom: 0; padding-bottom: 0; }
+.unified-content > .task-drawer.embedded-drawer .task-drawer-body { width:100%; }
+.unified-content > .task-drawer.embedded-drawer .task-drawer-body { display:flex; flex-direction:column; min-width:0; }
+.unified-content > .task-drawer.embedded-drawer .thread-list { width:100%; gap:8px; padding-left:0; padding-right:0; }
+.unified-content > .task-drawer.embedded-drawer .thread-card { width:100%; min-width:0; }
+.empty-task-state { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; min-height:180px; color:var(--muted); text-align:center; }
+.empty-task-state svg { color:#9eb83d; }
+.empty-task-state strong { color:var(--ink); font:600 17px var(--serif); }
+.empty-task-state span { font-size:11px; }
+
+/* 工作区按钮与品牌锁定区统一：绿色圆形图标 + 简洁字标。 */
+.workspace-dock-button:first-child {
+  min-width: 0;
+  width: auto;
+  height: 42px;
+  gap: 9px;
+  padding: 0 5px 0 3px;
+  color: var(--ink);
+  border: 0;
+  border-radius: 22px;
+  background: transparent;
+  box-shadow: none;
+  font-family: var(--mono);
+  letter-spacing: .06em;
+}
+.workspace-dock-button:first-child:hover,
+.workspace-dock-button:first-child.is-open {
+  border: 0;
+  background: rgba(255,253,248,.72);
+  box-shadow: 0 8px 20px rgba(52,58,42,.08);
+  transform: none;
+}
+.workspace-dock-button:first-child .dock-glyph {
+  width: 38px;
+  height: 38px;
+  color: var(--ink);
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 7px 17px rgba(161,179,65,.22);
+}
+.workspace-dock-button:first-child > span:not(.dock-glyph) {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .04em;
+}
+.workspace-dock-button:first-child b {
+  min-width: 22px;
+  height: 22px;
+  margin-left: 1px;
+  color: #647516;
+  background: #dce990;
+}
+.task-name-inline { position:fixed; top:18px; right:170px; width:170px; height:34px; padding:0 10px; color:var(--mist); border:0; border-bottom:1px solid rgba(43,48,37,.14); outline:0; background:transparent; font:11px var(--mono); }
+.task-name-inline:focus { color:var(--ink); border-bottom-color:#9eb83d; }
 
 /* 全屏提示词阅读层：维持轻量纸面质感，编辑区域自适应长文本。 */
 .prompt-fullscreen { position:fixed; z-index:60; inset:0; display:grid; place-items:center; padding:32px; background:rgba(38,43,34,.3); backdrop-filter:blur(13px); }
