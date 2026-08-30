@@ -1,0 +1,31 @@
+spring:
+  config:
+    # 加载本地 .env（仅用于开发环境，生产环境建议使用系统环境变量）
+    import: optional:file:.env[.properties]
+  application:
+    name: ms-backend-java
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://127.0.0.1:3306/mindscribe?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:123321}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+# 加载 XML 中的动态更新语句（updateThread/updateAttempt）。
+mybatis:
+  mapper-locations: classpath:/com.ms/mapper/*.xml
+
+# 本地 FastAPI 图片生成服务
+image-generation:
+  base-url: http://127.0.0.1    #地址
+  port: 8000                    #端口号
+
+http-client:
+  connect-timeout: 5s            #通用 HTTP 连接超时时间
+  read-timeout: 60s              #通用 HTTP 等待响应超时时间
+
+oss:
+  endpoint: ${OSS_ENDPOINT}
+  access-key-id: ${OSS_ACCESS_KEY_ID}
+  access-key-secret: ${OSS_ACCESS_KEY_SECRET}
+  bucket-name: ${OSS_BUCKET_NAME}
+  url-expire-seconds: 3600
