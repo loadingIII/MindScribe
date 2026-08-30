@@ -643,6 +643,64 @@ body { color:var(--ink); background:radial-gradient(circle at 84% 0%,rgba(201,22
 .unified-content > .task-drawer.embedded-drawer .task-drawer-body { display:flex; flex-direction:column; min-width:0; }
 .unified-content > .task-drawer.embedded-drawer .thread-list { width:100%; gap:8px; padding-left:0; padding-right:0; }
 .unified-content > .task-drawer.embedded-drawer .thread-card { width:100%; min-width:0; }
+.unified-content > .task-drawer.embedded-drawer .thread-card { grid-template-columns:44px minmax(0,1fr) 24px auto; }
+.unified-content > .task-drawer.embedded-drawer .thread-card::after { content: "✎"; display:grid; grid-column:3; width:24px; height:24px; place-items:center; color:var(--mist); border:1px solid var(--line); border-radius:7px; font-size:13px; order:1; }
+.unified-content > .task-drawer.embedded-drawer .thread-card { display:grid; grid-template-columns:minmax(0,1fr) 30px; align-items:stretch; gap:4px; padding:0; }
+.unified-content > .task-drawer.embedded-drawer .thread-card::after { display:none; }
+.thread-card-main { display:grid; grid-template-columns:44px minmax(0,1fr) auto; align-items:center; gap:8px; width:100%; min-width:0; padding:10px; color:inherit; border:0; text-align:left; background:transparent; cursor:pointer; }
+.thread-card-main:hover { background:rgba(217,232,106,.08); }
+.thread-edit { display:grid; place-items:center; align-self:center; width:26px; height:26px; margin-right:7px; color:var(--mist); border:1px solid var(--line); border-radius:7px; background:transparent; cursor:pointer; }
+.thread-edit:hover { color:var(--ink); border-color:var(--line-strong); background:var(--lime); }
+.unified-content > .task-drawer.embedded-drawer .thread-status { order:2; }
+.task-name-editor { display:flex; align-items:center; gap:6px; }
+.create-page:not(.has-thread) .task-name-editor { display:none; }
+.new-creation-button { display:inline-flex; align-items:center; gap:7px; margin:0 0 14px; padding:8px 14px; color:var(--ink); border:1px solid rgba(109,126,35,.28); border-radius:999px; background:linear-gradient(135deg,#eef3c8,#e1e9a8); box-shadow:0 5px 14px rgba(91,105,35,.12); font-size:12px; cursor:pointer; transition:transform .2s,box-shadow .2s,background .2s; }
+.new-creation-button:hover { transform:translateY(-1px); background:#dce78d; box-shadow:0 8px 18px rgba(91,105,35,.18); }
+.task-name-edit { display:grid; width:28px; height:28px; place-items:center; color:var(--mist); border:1px solid var(--line); border-radius:8px; background:transparent; }
+.task-name-edit { display:none; }
+.task-name-edit:hover { color:var(--ink); border-color:var(--lime); background:var(--lime-soft); }
+.task-name-inline[readonly] { cursor:default; }
+
+/* 工作区列表使用紧凑的“左缩略图、右信息”卡片。 */
+.unified-content > .task-drawer.embedded-drawer .thread-card {
+  grid-template-columns: minmax(0, 1fr) 30px;
+  min-height: 64px;
+  padding: 0;
+}
+.unified-content > .task-drawer.embedded-drawer .thread-icon {
+  width: 44px;
+  height: 44px;
+  overflow: hidden;
+  border-radius: 10px;
+}
+.unified-content > .task-drawer.embedded-drawer .thread-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.unified-content > .attempt-rail.embedded-drawer .attempt-rail-item {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 0;
+  text-align: left;
+}
+.unified-content > .attempt-rail.embedded-drawer .attempt-rail-item img {
+  grid-column: 1;
+  grid-row: 1;
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+}
+.unified-content > .attempt-rail.embedded-drawer .attempt-rail-item > div {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid;
+  gap: 5px;
+  justify-content: stretch;
+}
 .empty-task-state { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; min-height:180px; color:var(--muted); text-align:center; }
 .empty-task-state svg { color:#9eb83d; }
 .empty-task-state strong { color:var(--ink); font:600 17px var(--serif); }

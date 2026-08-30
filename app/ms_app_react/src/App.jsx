@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AppShell from "./components/AppShell";
 import { ROUTES } from "./config/routes";
 import CommunityPage from "./pages/CommunityPage";
@@ -16,6 +16,32 @@ function readUser() {
 /** 将页面功能装配到带全局导航的路由壳中。 */
 export default function App() {
   const [user, setUser] = useState(readUser);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const invalidate = () => {
+      localStorage.removeItem("mindscribe-user");
+      if (active) { setUser(null); setAuthChecked(true); }
+    };
+    window.addEventListener("mindscribe-auth-invalid", invalidate);
+    if (!user) { setAuthChecked(true); return () => { active = false; window.removeEventListener("mindscribe-auth-invalid", invalidate); }; }
+    fetch("/auth/me", { credentials: "include" })
+      .then((response) => {
+        if (response.status === 401 || response.status === 403) { invalidate(); return null; }
+        return response.ok ? response.json() : null;
+      })
+      .then((serverUser) => {
+        if (!active || !serverUser) return;
+        localStorage.setItem("mindscribe-user", JSON.stringify(serverUser));
+        setUser(serverUser);
+      })
+      .catch(() => {})
+      .finally(() => { if (active) setAuthChecked(true); });
+    return () => { active = false; window.removeEventListener("mindscribe-auth-invalid", invalidate); };
+  }, []);
+
+  if (!authChecked) return null;
   return <Routes>
     <Route path={ROUTES.login} element={<LoginPage onLogin={setUser} />} />
     <Route element={user ? <AppShell onLogout={() => setUser(null)} /> : <Navigate to={ROUTES.login} replace />}>

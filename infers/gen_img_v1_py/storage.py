@@ -43,6 +43,13 @@ def _oss_service() -> OSSService:
     return OSSService(app_config)
 
 
+def _public_url(object_name: str) -> str:
+    """返回稳定对象地址，避免把会过期的签名参数写入任务记录。"""
+    endpoint = str(app_config.get("oss", {}).get("endpoint", "")).replace("https://", "").replace("http://", "").rstrip("/")
+    bucket = str(app_config.get("oss", {}).get("bucket_name", "")).strip()
+    return f"https://{bucket}.{endpoint}/{object_name}"
+
+
 def upload_reference_image(
     file_name: str,
     content: bytes | BinaryIO,
@@ -57,7 +64,7 @@ def upload_reference_image(
     object_name = _object_name("reference_oss_prefix", extension, app_config)
     oss_service = _oss_service()
     oss_service.upload_bytes(object_name, image_bytes, content_type=content_type)
-    return oss_service.signed_url(object_name)
+    return _public_url(object_name)
 
 
 def save_image_to_oss(image_base64: str, output_format: str) -> str:
@@ -76,4 +83,4 @@ def save_image_to_oss(image_base64: str, output_format: str) -> str:
         image_bytes,
         content_type=_image_content_type(output_format),
     )
-    return oss_service.signed_url(object_name)
+    return _public_url(object_name)
