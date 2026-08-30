@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import urllib.request
 from urllib.parse import urlparse
 
 from openai import AsyncOpenAI, OpenAI
@@ -41,6 +42,22 @@ def _validate_image_url(images: list[str]) -> list[str]:
     return images
 
 
+def _save_generated_image(image, output_format: str) -> str:
+    """兼容模型返回 Base64 或远程 URL 两种图片结果格式。"""
+    if getattr(image, "b64_json", None):
+        return save_image_to_oss(image.b64_json, output_format)
+    image_url = getattr(image, "url", None)
+    if image_url:
+        with urllib.request.urlopen(image_url, timeout=60) as response:
+            image_bytes = response.read()
+        from infers.gen_img_v1_py.storage import _object_name, _oss_service, _image_content_type, app_config
+        object_name = _object_name("oss_prefix", output_format.lower(), app_config)
+        oss_service = _oss_service()
+        oss_service.upload_bytes(object_name, image_bytes, content_type=_image_content_type(output_format))
+        return oss_service.signed_url(object_name)
+    raise ValueError("模型返回中既没有 b64_json，也没有图片 URL")
+
+
 
 def generate_img(
     client: OpenAI,
@@ -64,7 +81,7 @@ def generate_img(
     if images:
         params["extra_body"] = {"image": _validate_image_url(images)}
     response = client.images.generate(**params)
-    return [save_image_to_oss(image.b64_json, output_format) for image in response.data]
+    return [_save_generated_image(image, output_format) for image in response.data]
 
 
 async def async_generate_img(
@@ -90,7 +107,7 @@ async def async_generate_img(
         params["extra_body"] = {"image": _validate_image_url(images)}
     response = await client.images.generate(**params)
     return [
-        await asyncio.to_thread(save_image_to_oss, image.b64_json, output_format)
+        await asyncio.to_thread(_save_generated_image, image, output_format)
         for image in response.data
     ]
 
