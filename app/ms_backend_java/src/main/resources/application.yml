@@ -7,7 +7,7 @@ spring:
   datasource:
     url: ${MYSQL_URL:jdbc:mysql://127.0.0.1:3306/mindscribe?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
     username: ${MYSQL_USERNAME:root}
-    password: ${MYSQL_PASSWORD:123321}
+    password: ${MYSQL_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
 # 加载 XML 中的动态更新语句（updateThread/updateAttempt）。
@@ -16,8 +16,8 @@ mybatis:
 
 # 本地 FastAPI 图片生成服务
 image-generation:
-  base-url: http://127.0.0.1    #地址
-  port: 8000                    #端口号
+  base-url: ${IMAGE_GENERATION_BASE_URL:http://127.0.0.1}
+  port: ${IMAGE_GENERATION_PORT:8000}
 
 http-client:
   connect-timeout: 5s            #通用 HTTP 连接超时时间
@@ -28,4 +28,4 @@ oss:
   access-key-id: ${OSS_ACCESS_KEY_ID}
   access-key-secret: ${OSS_ACCESS_KEY_SECRET}
   bucket-name: ${OSS_BUCKET_NAME}
-  url-expire-seconds: 3600
+  url-expire-seconds: ${OSS_URL_EXPIRE_SECONDS:3600}

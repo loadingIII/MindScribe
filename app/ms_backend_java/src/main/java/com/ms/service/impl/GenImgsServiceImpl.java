@@ -30,6 +30,10 @@ import java.util.List;
 /** 图片生成业务：负责 DTO 转换、任务提交及结果反序列化。 */
 @Service
 public class GenImgsServiceImpl implements GenImgsService {
+    private static final String PENDING = "pending";
+    private static final String REFERENCE_IMAGES_DIR = "reference-images";
+    private static final String REFERENCE_URL_FIELD = "reference_image_urls";
+    private static final String IMAGE_MIME_TYPE = "image/png";
     private static final org.slf4j.Logger log = LogUtil.getLogger(GenImgsServiceImpl.class);
     private final HttpClientUtil http;
     private final ObjectMapper mapper;
@@ -39,8 +43,8 @@ public class GenImgsServiceImpl implements GenImgsService {
     private final Map<String, List<AttemptVO>> threads = new ConcurrentHashMap<>();
 
     public GenImgsServiceImpl(HttpClientUtil http, ObjectMapper mapper, OssStorageUtil oss, GenImgsMapper genImgsMapper,
-                              @Value("${image-generation.base-url:http://127.0.0.1}") String host,
-                              @Value("${image-generation.port:8000}") int port) {
+                              @Value("${image-generation.base-url}") String host,
+                              @Value("${image-generation.port}") int port) {
         this.http = http;
         this.mapper = mapper;
         this.oss = oss;
@@ -59,16 +63,16 @@ public class GenImgsServiceImpl implements GenImgsService {
         add(parts, "model", request.getModel());
         add(parts, "size", request.getSize());
         add(parts, "quality", request.getQuality());
-        add(parts, "output_format", request.getOutput_format());
+        add(parts, "output_format", request.getOutputFormat());
         if (request.getN() != null) add(parts, "n", request.getN().toString());
-        for (String referenceUrl : request.getReference_image_urls() == null ? List.<String>of() : request.getReference_image_urls()) {
-            if (referenceUrl != null && !referenceUrl.isBlank()) parts.add(HttpClientUtil.Part.text("reference_image_urls", referenceUrl));
+        for (String referenceUrl : request.getReferenceImageUrls() == null ? List.<String>of() : request.getReferenceImageUrls()) {
+            if (referenceUrl != null && !referenceUrl.isBlank()) parts.add(HttpClientUtil.Part.text(REFERENCE_URL_FIELD, referenceUrl));
         }
-        for (MultipartFile file : request.getReference_images() == null ? List.<MultipartFile>of() : request.getReference_images()) {
+        for (MultipartFile file : request.getReferenceImages() == null ? List.<MultipartFile>of() : request.getReferenceImages()) {
             // 参考图统一存放在 reference-images 日期目录下。
-            String referenceUrl = oss.upload(file, "reference-images");
+            String referenceUrl = oss.upload(file, REFERENCE_IMAGES_DIR);
             referenceUrls.add(referenceUrl);
-            parts.add(HttpClientUtil.Part.text("reference_image_urls", referenceUrl));
+            parts.add(HttpClientUtil.Part.text(REFERENCE_URL_FIELD, referenceUrl));
         }
         try {
             CreateTaskVO task = mapper.readValue(http.postForm(serviceUrl + "/generate", parts).body(), CreateTaskVO.class);
@@ -139,7 +143,7 @@ public class GenImgsServiceImpl implements GenImgsService {
                 update.setId(attempt.attemptId()); update.setStatus(task.status());
                 List<Map<String, Object>> resultImages = new ArrayList<>();
                 List<String> urls = normalizedUrls;
-                for (int i = 0; i < urls.size(); i++) { Map<String, Object> image = new LinkedHashMap<>(); image.put("url", normalizeImageUrl(urls.get(i))); image.put("mimeType", "image/png"); image.put("sortOrder", i + 1); resultImages.add(image); }
+                for (int i = 0; i < urls.size(); i++) { Map<String, Object> image = new LinkedHashMap<>(); image.put("url", urls.get(i)); image.put("mimeType", IMAGE_MIME_TYPE); image.put("sortOrder", i + 1); resultImages.add(image); }
                 update.setResults(mapper.writeValueAsString(resultImages));
                 update.setErrorMessage(task.error()); update.setExternalTaskId(task.taskId());
                 dbMapper.updateAttempt(update);
@@ -160,7 +164,7 @@ public class GenImgsServiceImpl implements GenImgsService {
 
     private AttemptVO submitAttempt(GenerateImageDTO request, List<String> referenceUrls) throws IOException, InterruptedException {
         CreateTaskVO task = create(request, referenceUrls);
-        return new AttemptVO(UUID.randomUUID().toString(), task.taskId(), "pending", List.of(), null);
+        return new AttemptVO(UUID.randomUUID().toString(), task.taskId(), PENDING, List.of(), null);
     }
 
     @Override
@@ -195,7 +199,7 @@ public class GenImgsServiceImpl implements GenImgsService {
         ThreadEntity thread = new ThreadEntity(); thread.setId(id); thread.setUserId(userId);
         thread.setTitle(request.getTitle() == null || request.getTitle().isBlank() ? request.getPrompt() : request.getTitle());
         List<Map<String, Object>> references = new ArrayList<>();
-        List<MultipartFile> files = request.getReference_images() == null ? List.of() : request.getReference_images();
+        List<MultipartFile> files = request.getReferenceImages() == null ? List.of() : request.getReferenceImages();
         for (int i = 0; i < (referenceUrls == null ? 0 : referenceUrls.size()); i++) {
             Map<String, Object> reference = new LinkedHashMap<>(); reference.put("url", referenceUrls.get(i));
             String filename = i < files.size() ? files.get(i).getOriginalFilename() : null;
@@ -203,14 +207,14 @@ public class GenImgsServiceImpl implements GenImgsService {
             reference.put("filename", filename == null ? "reference-" + (i + 1) : filename); reference.put("mimeType", mimeType == null ? "image/*" : mimeType); references.add(reference);
         }
         thread.setReferenceImages(mapper.writeValueAsString(references));
-        thread.setStatus("pending"); thread.setAttemptCount(1); return thread;
+        thread.setStatus(PENDING); thread.setAttemptCount(1); return thread;
     }
 
     private AttemptEntity toAttempt(AttemptVO source, GenerateImageDTO request, String threadId, int number) {
         AttemptEntity attempt = new AttemptEntity(); attempt.setId(source.attemptId()); attempt.setThreadId(threadId);
         attempt.setAttemptNo(number); attempt.setStatus(source.status()); attempt.setModelName(request.getModel());
         attempt.setPrompt(request.getPrompt());
-        attempt.setSize(request.getSize()); attempt.setQuality(request.getQuality()); attempt.setOutputFormat(request.getOutput_format());
+        attempt.setSize(request.getSize()); attempt.setQuality(request.getQuality()); attempt.setOutputFormat(request.getOutputFormat());
         attempt.setRequestedCount(request.getN() == null ? 1 : request.getN()); attempt.setResults("[]");
         attempt.setExternalTaskId(source.taskId()); return attempt;
     }

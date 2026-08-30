@@ -26,7 +26,7 @@ public class OssStorageUtil {
                           @Value("${oss.access-key-id}") String accessKeyId,
                           @Value("${oss.access-key-secret}") String accessKeySecret,
                           @Value("${oss.bucket-name}") String bucket,
-                          @Value("${oss.url-expire-seconds:3600}") long expireSeconds) {
+                          @Value("${oss.url-expire-seconds}") long expireSeconds) {
         // OSS SDK 要求 Endpoint 带协议；配置中即使只填写域名也自动补全。
         String normalizedEndpoint = endpoint.startsWith("http://") || endpoint.startsWith("https://")
                 ? endpoint

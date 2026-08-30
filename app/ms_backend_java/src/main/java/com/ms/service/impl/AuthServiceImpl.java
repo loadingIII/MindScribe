@@ -4,7 +4,7 @@ import com.ms.mapper.UserMapper;
 import com.ms.pojo.dto.LoginRequest;
 import com.ms.pojo.vo.LoginVO;
 import com.ms.service.AuthService;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import com.ms.utils.LogUtil;
 
@@ -13,11 +13,11 @@ import com.ms.utils.LogUtil;
 public class AuthServiceImpl implements AuthService {
     private static final org.slf4j.Logger log = LogUtil.getLogger(AuthServiceImpl.class);
     private final UserMapper userMapper;
-    private final BCryptPasswordEncoder passwordEncoder;
+    private final PasswordEncoder passwordEncoder;
 
-    public AuthServiceImpl(UserMapper userMapper) {
+    public AuthServiceImpl(UserMapper userMapper, PasswordEncoder passwordEncoder) {
         this.userMapper = userMapper;
-        this.passwordEncoder = new BCryptPasswordEncoder();
+        this.passwordEncoder = passwordEncoder;
     }
 
     @Override

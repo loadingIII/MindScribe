@@ -29,8 +29,8 @@ public class HttpClientUtil {
     private final Duration readTimeout;
 
     /** 使用默认超时创建工具实例，适合一般请求。 */
-    public HttpClientUtil(@Value("${http-client.connect-timeout:5s}") Duration connectTimeout,
-                          @Value("${http-client.read-timeout:60s}") Duration readTimeout) {
+    public HttpClientUtil(@Value("${http-client.connect-timeout}") Duration connectTimeout,
+                          @Value("${http-client.read-timeout}") Duration readTimeout) {
         this.readTimeout = readTimeout;
         this.client = HttpClient.newBuilder().connectTimeout(connectTimeout).build();
     }
