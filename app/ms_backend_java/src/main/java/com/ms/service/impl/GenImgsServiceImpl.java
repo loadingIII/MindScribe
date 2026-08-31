@@ -1,6 +1,6 @@
 package com.ms.service.impl;
 
-import tools.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ms.pojo.dto.GenerateImageDTO;
 import com.ms.pojo.vo.AttemptVO;
 import com.ms.pojo.vo.CreateTaskVO;
