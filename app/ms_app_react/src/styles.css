@@ -759,7 +759,17 @@ body { color:var(--ink); background:radial-gradient(circle at 84% 0%,rgba(201,22
 .prompt-fullscreen-panel header span { color:var(--ink); font:600 18px var(--serif); }
 .prompt-fullscreen-panel header small { color:var(--mist); font:10px var(--mono); }
 .prompt-fullscreen-panel header button { display:grid; width:34px; height:34px; place-items:center; border-radius:10px; color:var(--mist); background:#f0f0e9; }
-.prompt-fullscreen-panel textarea { width:100%; flex:1; min-height:0; padding:26px 28px; resize:none; border:0; outline:0; color:var(--ink); background:#fffdf8; font:16px/1.9 var(--sans); }
+.prompt-fullscreen-editor { position:relative; display:flex; min-height:0; flex:1; }
+.fullscreen-rich-prompt { width:100%; flex:1; min-height:0; padding:26px 28px; overflow:auto; outline:0; color:var(--ink); background:#fffdf8; font:16px/1.9 var(--sans); white-space:pre-wrap; word-break:break-word; }
+.fullscreen-rich-prompt:empty:before { content:attr(data-placeholder); color:#92958a; pointer-events:none; }
+.fullscreen-rich-prompt .mention-chip { font-size:14px; }
+.fullscreen-mention-menu { position:absolute; z-index:2; right:28px; bottom:20px; width:min(340px,calc(100% - 56px)); max-height:220px; overflow:auto; padding:8px; border:1px solid #d2d4c8; border-radius:12px; background:#fffdf7; box-shadow:0 16px 35px rgba(45,48,35,.18); }
+.fullscreen-mention-menu button { display:flex; align-items:center; width:100%; gap:8px; padding:7px 8px; border-radius:8px; color:var(--ink); background:transparent; text-align:left; font-size:12px; }
+.fullscreen-mention-menu button:hover { background:#f0f3df; }
+.fullscreen-mention-menu button.active { background:#e8efc7; box-shadow:inset 2px 0 #91a52a; }
+.fullscreen-mention-menu img { width:28px; height:28px; object-fit:cover; border-radius:6px; }
+.fullscreen-mention-menu span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fullscreen-mention-menu kbd { color:#9aa08d; font:10px var(--mono); }
 .prompt-fullscreen-panel footer { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:14px 24px 18px; border-top:1px solid var(--line); }
 .prompt-fullscreen-panel footer span { color:var(--mist); font-size:11px; }
 .prompt-fullscreen-panel footer .primary-action { min-width:80px; }

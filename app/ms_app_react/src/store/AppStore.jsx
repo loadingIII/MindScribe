@@ -13,7 +13,16 @@ export function AppStore({ children }) {
   const [prompts, setPrompts] = useState(saved.prompts || starterPrompts);
   const [works, setWorks] = useState(saved.works || starterWorks);
   const [library, setLibrary] = useState(saved.library || starterLibrary);
-  const [draft, setDraft] = useState(saved.draft || { prompt: "", model: "gpt-image-2", size: "1024×1024", mode: "文本生图" });
+  const initialDraft = saved.draft || {};
+  const [draft, setDraft] = useState({
+    ...initialDraft,
+    prompt: initialDraft.prompt || "",
+    model: initialDraft.model || "gpt-image-2",
+    // 旧版本默认尺寸为 1024×1024，迁移为新的自动默认值。
+    size: initialDraft.size === "1024×1024" && !initialDraft.quality ? "auto" : (initialDraft.size || "auto"),
+    quality: initialDraft.quality || "auto",
+    mode: initialDraft.mode || "文本生图"
+  });
   const [credits, setCredits] = useState(saved.credits ?? 2180);
   const [settings, setSettings] = useState(saved.settings || { public: true, remix: true, revealPrompt: true, downloads: true });
   const [following, setFollowing] = useState(saved.following || ["yun"]);

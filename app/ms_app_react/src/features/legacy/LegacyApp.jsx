@@ -116,11 +116,70 @@ function formatNumber(value) {
 }
 
 function referenceLabel(name) {
-  return name.replace(/\.[^.]+$/, "");
+  // 引用提示词和候选菜单均展示原始 filename，便于用户识别参考图。
+  return name;
 }
 
 function editorPromptText(element) {
   return Array.from(element.childNodes).map((node) => node.nodeType === Node.ELEMENT_NODE && node.dataset.promptValue ? node.dataset.promptValue : node.textContent || "").join("").replace(/\u200b/g, "");
+}
+
+function createMentionChip(file) {
+  // 标签在视觉上只显示 filename，提交时使用 data-prompt-value 还原为文本标记。
+  const chip = document.createElement("span");
+  const filename = referenceLabel(file.file.name);
+  chip.className = "mention-chip";
+  chip.contentEditable = "false";
+  chip.dataset.fileId = file.id;
+  chip.dataset.promptValue = `[${filename}]`;
+  chip.textContent = filename;
+  return chip;
+}
+
+function renderPromptContent(editor, value, files) {
+  // 将已保存的引用标记恢复为标签，同时兼容此前的 [序号:filename] 格式。
+  const tokenPattern = /\[(?:(\d+):)?([^\]\n]+)\]/g;
+  const text = String(value || "");
+  let cursor = 0;
+  let match;
+  editor.replaceChildren();
+  while ((match = tokenPattern.exec(text))) {
+    editor.append(document.createTextNode(text.slice(cursor, match.index)));
+    const file = match[1] ? files[Number(match[1]) - 1] : files.find((item) => referenceLabel(item.file.name) === match[2]);
+    if (file) {
+      const chip = createMentionChip(file);
+      chip.dataset.promptValue = match[0];
+      editor.append(chip);
+    } else {
+      editor.append(document.createTextNode(match[0]));
+    }
+    cursor = match.index + match[0].length;
+  }
+  editor.append(document.createTextNode(text.slice(cursor)));
+}
+
+function removeAdjacentMention(editor, key) {
+  // contentEditable 的不可编辑标签在首位时无法由浏览器稳定删除，因此手动处理标签后的 Backspace。
+  const selection = window.getSelection();
+  if (!editor || !selection?.rangeCount) return false;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed) return false;
+  const { startContainer, startOffset } = range;
+  let chip = null;
+  if (startContainer === editor) {
+    chip = editor.childNodes[startOffset - 1];
+  } else if (startContainer.nodeType === Node.TEXT_NODE) {
+    if (key === "Backspace" && startOffset === 0) chip = startContainer.previousSibling;
+  }
+  if (!(chip instanceof HTMLElement) || !chip.classList.contains("mention-chip")) return false;
+  const position = Array.from(editor.childNodes).indexOf(chip);
+  chip.remove();
+  const nextRange = document.createRange();
+  nextRange.setStart(editor, position);
+  nextRange.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(nextRange);
+  return true;
 }
 
 export function LegacyApp() {
@@ -210,8 +269,8 @@ export function CreatePage() {
 
   useEffect(() => {
     const editor = richPromptRef.current;
-    if (editor && document.activeElement !== editor && editorPromptText(editor) !== prompt) editor.innerText = prompt;
-  }, [prompt]);
+    if (editor && editorPromptText(editor) !== prompt) renderPromptContent(editor, prompt, files);
+  }, [prompt, files]);
 
   useEffect(() => {
     // Thread 的最新 Attempt 进入终态后停止轮询，避免成功后继续请求。
@@ -373,12 +432,7 @@ export function CreatePage() {
       range.setStart(node, atIndex);
       range.deleteContents();
     }
-    const chip = document.createElement("span");
-    chip.className = "mention-chip";
-    chip.contentEditable = "false";
-    chip.dataset.fileId = file.id;
-    chip.textContent = referenceLabel(file.file.name);
-    chip.dataset.promptValue = `[${files.findIndex((item) => item.id === file.id) + 1}:${referenceLabel(file.file.name)}]`;
+    const chip = createMentionChip(file);
     range.insertNode(chip);
     range.setStartAfter(chip); range.collapse(true);
     selection.removeAllRanges(); selection.addRange(range);
@@ -386,6 +440,26 @@ export function CreatePage() {
     syncRichPrompt();
   }
 
+  function handleRichPromptKeyDown(event) {
+    if (event.key === "Backspace" && removeAdjacentMention(richPromptRef.current, event.key)) {
+      event.preventDefault();
+      syncRichPrompt();
+      return;
+    }
+    if (!mentionOpen || !mentionCandidates.length) {
+      if (event.key === "Escape") setMentionOpen(false);
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setMentionIndex((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + mentionCandidates.length) % mentionCandidates.length);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      insertMention(mentionCandidates[mentionIndex]);
+    } else if (event.key === "Escape") {
+      setMentionOpen(false);
+    }
+  }
 
   return <section className={`create-page ${workspaceOpen ? "has-workspace-rail" : ""} ${(threadId || workspaceThreadId) ? "has-thread" : ""}`} style={{ "--workspace-width": `${workspaceWidth}px` }} ref={canvasRef} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); }}>
     <div className="create-intro workspace-rail-controls"><button className={`workspace-dock-button ${workspaceOpen ? "is-open" : ""}`} type="button" aria-expanded={workspaceOpen} onClick={() => setWorkspaceOpen((open) => !open)}><span className="dock-glyph"><PanelRight size={15} /></span><span>工作区</span></button><div className="task-name-editor"><input className="task-name-inline" value={taskName} maxLength="40" readOnly={!editingTaskName} onChange={(event) => setTaskName(event.target.value)} onBlur={() => { if (editingTaskName) saveThreadTitle(); }} onKeyDown={(event) => { if (event.key === "Enter") { event.currentTarget.blur(); setEditingTaskName(false); } }} aria-label="任务名称" /><button type="button" className="task-name-edit" title={editingTaskName ? "保存任务名称" : "修改任务名称"} onMouseDown={(event) => event.preventDefault()} onClick={() => { if (editingTaskName) { saveThreadTitle(); setEditingTaskName(false); } else setEditingTaskName(true); }}>{editingTaskName ? <Check size={14} /> : <Pencil size={14} />}</button></div></div>
@@ -393,7 +467,7 @@ export function CreatePage() {
       <section className="creation-controls">
         <div className="control-title"><span>参考图</span><small>可选 · 最多 4 张</small></div>
         <div className={`reference-strip ${files.length ? "has-files" : "empty"}`} onDragOver={(event) => !referencesLocked && event.preventDefault()} onDrop={(event) => !referencesLocked && dropReferences(event)}>{files.map((item) => <div className="reference-item" key={item.id}><img src={item.url} alt={item.file.name} /><div className="reference-caption"><span>{item.file.name}</span>{!referencesLocked && <button onClick={() => removeReference(item.id)} title="移除参考图"><X size={13} /></button>}</div></div>)}{files.length < 4 && !referencesLocked && <label className="reference-add"><ImagePlus size={24} /><div><b>{files.length ? "继续添加" : "添加参考图"}</b><small>{files.length ? `${files.length}/4 张` : "点击或拖拽图片到这里"}</small></div><input type="file" accept="image/*" multiple onChange={(event) => addReferences(event.target.files)} /></label>}</div>
-        <div className="prompt-editor"><div className="prompt-editor-head"><span>你的构想</span><div><small className="prompt-hint">输入 @ 关联参考图</small><button type="button" onClick={() => setPromptFullscreen(true)} title="全屏查看提示词"><Maximize2 size={15} /></button></div></div><div ref={richPromptRef} className="rich-prompt" contentEditable suppressContentEditableWarning onInput={syncRichPrompt} onKeyDown={(event) => { if (!mentionOpen || !mentionCandidates.length) { if (event.key === "Escape") setMentionOpen(false); return; } if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setMentionIndex((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + mentionCandidates.length) % mentionCandidates.length); } else if (event.key === "Enter") { event.preventDefault(); insertMention(mentionCandidates[mentionIndex]); } else if (event.key === "Escape") setMentionOpen(false); }} data-placeholder="写下你的创作构想…" />{mentionOpen && mentionCandidates.length > 0 && <div className="mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择，Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>[{files.findIndex((file) => file.id === item.id) + 1}:{referenceLabel(item.file.name)}]</span><kbd>{index + 1}</kbd></button>)}</div>}<small className="prompt-count">{prompt.length}/5000</small></div>
+        <div className="prompt-editor"><div className="prompt-editor-head"><span>你的构想</span><div><small className="prompt-hint">输入 @ 关联参考图</small><button type="button" onClick={() => setPromptFullscreen(true)} title="全屏查看提示词"><Maximize2 size={15} /></button></div></div><div ref={richPromptRef} className="rich-prompt" contentEditable suppressContentEditableWarning onInput={syncRichPrompt} onKeyDown={handleRichPromptKeyDown} data-placeholder="写下你的创作构想…" />{mentionOpen && mentionCandidates.length > 0 && <div className="mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择，Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>{referenceLabel(item.file.name)}</span><kbd>{index + 1}</kbd></button>)}</div>}<small className="prompt-count">{prompt.length}/5000</small></div>
         <div className="control-fields"><SelectField label="模型" value={draft.model || "gpt-image-2"} options={["gpt-image-2", "dall-e-3"]} onChange={(value) => setDraft({ ...draft, model: value })} /><SelectField label="尺寸" value={normalizeSize(draft.size)} options={GPT_IMAGE_SIZE_OPTIONS} onChange={(value) => setDraft({ ...draft, size: value })} /><SelectField label="质量" value={normalizeQuality(draft.quality)} options={[{ value: "auto", label: "自动" }, { value: "low", label: "低" }, { value: "medium", label: "中" }, { value: "high", label: "高" }]} onChange={(value) => setDraft({ ...draft, quality: value })} /><SelectField label="数量" value="1" options={["1"]} disabled /></div>
         <div className="control-footer"><button className="plain-button" type="button" onClick={() => setAdvancedOpen(true)}><Settings2 size={15} />高级参数</button><button className="create-button" onClick={startGeneration} disabled={!["idle", "failed", "done"].includes(status) || !prompt.trim()}><WandSparkles size={17} />{status === "idle" || status === "failed" || status === "done" ? (status === "failed" ? "重试" : status === "done" ? "重新生成" : "开始创作") : status === "queued" ? "待生成" : "生成中"}</button></div>
       </section>
@@ -407,7 +481,7 @@ export function CreatePage() {
     </div>
     {workspaceOpen && <UnifiedWorkspace view={workspaceView} onViewChange={setWorkspaceView} threads={taskThreads} thread={taskThreads.find((item) => item.id === workspaceThreadId) || taskThreads.find((item) => item.id === threadId) || taskThreads[0]} width={workspaceWidth} onResize={setWorkspaceWidth} onClose={() => setWorkspaceOpen(false)} onRetry={retryThread} onEditThread={(item) => setThreadEdit({ id: item.id, title: item.title })} onSelectThread={(item) => { setWorkspaceThreadId(item.id); setTaskName(item.title); setEditingTaskName(false); setWorkspaceView("results"); }} onSelectAttempt={(attempt, selectedThread) => { setThreadId(selectedThread.id); setWorkspaceThreadId(selectedThread.id); setPrompt(attempt.prompt || ""); setDraft({ ...draft, prompt: attempt.prompt || "", model: attempt.modelName || draft.model, size: attempt.size || draft.size, quality: attempt.quality || draft.quality }); setFiles((selectedThread.references || []).map((reference, index) => ({ id: `stored-ref-${index}`, url: reference.url || reference.objectKey || reference, file: { name: reference.filename || `参考图 ${index + 1}`, type: reference.mimeType || "image/*" } }))); setReferencesLocked(true); setResults((attempt.imageUrls || []).map((url, index) => ({ id: `${attempt.id}-${index}`, image: url, title: `${mode} · ${index + 1}`, version: "初稿", attemptNumber: attempt.attemptNo || selectedThread.attempts.findIndex((item) => item.id === attempt.id) + 1 }))); setStatus(attempt.rawStatus === "succeeded" || (attempt.imageUrls || []).length ? "done" : attempt.rawStatus === "failed" ? "failed" : attempt.rawStatus === "running" ? "working" : "queued"); }} />}
     {threadEdit && <Modal title="修改任务名称" onClose={() => setThreadEdit(null)}><div className="template-form"><label>任务名称<input autoFocus maxLength="40" value={threadEdit.title} onChange={(event) => setThreadEdit({ ...threadEdit, title: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.closest("form")?.requestSubmit(); }} /></label><button type="button" className="primary-action" disabled={!threadEdit.title.trim()} onClick={async () => { try { const response = await fetch(`/gen_imgs/threads/${threadEdit.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: threadEdit.title.trim() }) }); if (!response.ok) throw new Error("任务名称修改失败"); setTaskThreads((items) => items.map((item) => item.id === threadEdit.id ? { ...item, title: threadEdit.title.trim() } : item)); if (workspaceThreadId === threadEdit.id) setTaskName(threadEdit.title.trim()); setThreadEdit(null); setToast("任务名称已更新"); } catch (error) { setToast(error.message); } }}>保存</button></div></Modal>}
-    {promptFullscreen && <PromptFullscreen value={prompt} onChange={setPrompt} onClose={() => setPromptFullscreen(false)} />}
+    {promptFullscreen && <PromptFullscreen value={prompt} files={files} onChange={setPrompt} onClose={() => setPromptFullscreen(false)} />}
     {advancedOpen && <AdvancedPromptModal value={additionalSystemPrompt} basePrompt={GEN_IMGS_SYSTEM_PROMPT} onChange={setAdditionalSystemPrompt} onClose={() => setAdvancedOpen(false)} onSave={() => { setDraft({ ...draft, additionalSystemPrompt }); setAdvancedOpen(false); setToast("系统提示词追加内容已保存"); }} />}
     {previewResult && <ImagePreview result={previewResult} filename={`${safeDownloadName(taskName)}-${previewResult.attemptNumber || 1}.png`} onClose={() => setPreviewResult(null)} onDownload={() => downloadResultImage(previewResult.image, `${safeDownloadName(taskName)}-${previewResult.attemptNumber || 1}.png`)} />}
   </section>;
@@ -448,9 +522,80 @@ function AttemptDrawer({ thread, width, onResize, onClose, onRetry, onSelectAtte
   return <aside className={`attempt-rail task-drawer ${embedded ? "embedded-drawer" : ""}`} style={embedded ? undefined : { width }} aria-label="Attempt 结果">{!embedded && <div className="rail-resizer rail-resizer-left" onPointerDown={(event) => { const start = event.clientX; const initial = width; const move = (e) => onResize(Math.max(240, Math.min(520, initial + start - e.clientX))); const stop = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", stop); }} />}<div className="attempt-rail-body"><p className="detail-kicker">{thread.title}</p>{thread.attempts.map((attempt) => <button className="attempt-rail-item" type="button" key={attempt.id} onClick={() => onSelectAttempt?.(attempt)}><div><b>{attempt.label}</b><span>{attempt.status}</span></div>{attempt.imageUrls?.[0] && <img src={attempt.imageUrls[0]} alt="结果缩略图" />}</button>)}</div></aside>;
 }
 
-function PromptFullscreen({ value, onChange, onClose }) {
-  // 提供全屏提示词编辑器，便于长文本阅读和修改。
-  return <div className="prompt-fullscreen" role="dialog" aria-modal="true"><div className="prompt-fullscreen-panel"><header><div><span>提示词编辑</span><small>{value.length}/5000</small></div><button type="button" onClick={onClose} title="关闭全屏"><X size={19} /></button></header><textarea autoFocus value={value} maxLength="5000" onChange={(event) => onChange(event.target.value)} placeholder="写下你的创作构想…" /><footer><span>支持长提示词，可随时调整画面细节。</span><button type="button" className="primary-action" onClick={onClose}>完成</button></footer></div></div>;
+function PromptFullscreen({ value, files, onChange, onClose }) {
+  // 全屏编辑器沿用页面内的 @ 参考图关联格式，避免长提示词编辑时丢失该能力。
+  const editorRef = useRef(null);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const mentionCandidates = files.filter((item) => item.file.name.toLowerCase().includes(mentionQuery.toLowerCase()));
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (editor && editorPromptText(editor) !== value) renderPromptContent(editor, value, files);
+  }, [value, files]);
+
+  function updateMention() {
+    // 只检查光标当前行，避免正文中较早的 @ 影响正在输入的位置。
+    const selection = window.getSelection();
+    const anchor = selection?.anchorNode;
+    const currentLine = anchor?.nodeType === Node.TEXT_NODE ? anchor.textContent.slice(0, selection.anchorOffset).split("\n").at(-1) || "" : "";
+    const match = currentLine.match(/@([^\s@]*)$/);
+    setMentionOpen(Boolean(match && files.length));
+    setMentionQuery(match?.[1] || "");
+    setMentionIndex(0);
+  }
+
+  function syncFullscreenPrompt() {
+    const editor = editorRef.current;
+    if (!editor) return;
+    onChange(editorPromptText(editor));
+    updateMention();
+  }
+
+  function insertMention(file) {
+    const editor = editorRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection?.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    const node = range.startContainer;
+    const text = node.nodeType === Node.TEXT_NODE ? node.textContent : "";
+    const atIndex = text.slice(0, range.startOffset).lastIndexOf("@");
+    if (atIndex < 0 || node.nodeType !== Node.TEXT_NODE) return;
+    range.setStart(node, atIndex);
+    range.deleteContents();
+    const chip = createMentionChip(file);
+    range.insertNode(chip);
+    range.setStartAfter(chip);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    setMentionOpen(false);
+    syncFullscreenPrompt();
+  }
+
+  function handleKeyDown(event) {
+    if (event.key === "Backspace" && removeAdjacentMention(editorRef.current, event.key)) {
+      event.preventDefault();
+      syncFullscreenPrompt();
+      return;
+    }
+    if (!mentionOpen || !mentionCandidates.length) {
+      if (event.key === "Escape") setMentionOpen(false);
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setMentionIndex((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + mentionCandidates.length) % mentionCandidates.length);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      insertMention(mentionCandidates[mentionIndex]);
+    } else if (event.key === "Escape") {
+      setMentionOpen(false);
+    }
+  }
+
+  return <div className="prompt-fullscreen" role="dialog" aria-modal="true"><div className="prompt-fullscreen-panel"><header><div><span>提示词编辑</span><small>{value.length}/5000</small></div><button type="button" onClick={onClose} title="关闭全屏"><X size={19} /></button></header><div className="prompt-fullscreen-editor"><div ref={editorRef} className="fullscreen-rich-prompt" contentEditable suppressContentEditableWarning onInput={syncFullscreenPrompt} onKeyDown={handleKeyDown} data-placeholder="写下你的创作构想…" autoFocus />{mentionOpen && mentionCandidates.length > 0 && <div className="fullscreen-mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择，Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>{referenceLabel(item.file.name)}</span><kbd>{index + 1}</kbd></button>)}</div>}</div><footer><span>输入 @ 可关联参考图，支持长提示词编辑。</span><button type="button" className="primary-action" onClick={onClose}>完成</button></footer></div></div>;
 }
 
 function getPromptExcerpt(prompt, maxLength = 96) {
@@ -466,7 +611,7 @@ export function PromptsPage() {
   const [source, setSource] = useState("全部"); const [category, setCategory] = useState("全部"); const [query, setQuery] = useState(""); const [reverseOpen, setReverseOpen] = useState(false); const [newOpen, setNewOpen] = useState(false); const [selectedPrompt, setSelectedPrompt] = useState(null);
   const list = prompts.filter((item) => (source === "全部" || item.source === source) && (category === "全部" || item.category === category) && `${item.title}${item.prompt}${item.tags.join("")}`.toLowerCase().includes(query.toLowerCase()));
   function usePrompt(item) { // 将完整提示词带入创作工作台。
-    setDraft({ prompt: item.prompt, model: "gpt-image-2", size: "1024×1024", mode: "文本生图" }); navigate("/create"); setToast("提示词已带入创作工作台");
+    setDraft({ prompt: item.prompt, model: "gpt-image-2", size: "auto", quality: "auto", mode: "文本生图" }); navigate("/create"); setToast("提示词已带入创作工作台");
   }
   return <section className="content-page prompt-page"><PageHeading title={<>提示词库</>} description="收藏、整理、复用。" action={<button className="primary-action" onClick={() => setNewOpen(true)}><Plus size={16} />新建模板</button>} />
     <div className="prompt-utility"><div className="search-box"><Search size={17} /><input placeholder="搜索标题、风格、标签" value={query} onChange={(event) => setQuery(event.target.value)} /></div><div className="filter-row">{["全部", "官方", "社区", "我的"].map((item) => <button className={source === item ? "active" : ""} onClick={() => setSource(item)} key={item}>{item}</button>)}</div></div>
@@ -474,7 +619,7 @@ export function PromptsPage() {
     <div className="prompt-layout"><div className="prompt-grid">{list.map((item) => <article className="prompt-card" key={item.id}><img src={item.cover} alt="" /><div className="prompt-card-body"><div className="card-overline"><span>{item.source} · {item.category}</span><button onClick={() => togglePrompt(item.id)} className={item.saved ? "saved" : ""} title={item.saved ? "取消收藏" : "收藏模板"}><Bookmark size={16} fill={item.saved ? "currentColor" : "none"} /></button></div><h3>{item.title}</h3><p className="prompt-preview">{getPromptExcerpt(item.prompt)}</p><div className="prompt-card-meta"><span>{item.prompt.length} 字</span><div className="tag-list">{item.tags.slice(0, 2).map((tag) => <span key={tag}>{tag}</span>)}</div></div><div className="card-actions"><button onClick={() => setSelectedPrompt(item)}>查看全文</button><button onClick={() => usePrompt(item)}><Copy size={14} />套用</button>{item.source === "我的" && <button onClick={() => updatePrompt(item.id, { source: "社区" })}>发布</button>}{item.source === "社区" && <button onClick={() => updatePrompt(item.id, { source: "我的" })}>撤回</button>}{item.source === "我的" && <button onClick={() => deletePrompt(item.id)} title="删除模板"><Trash2 size={14} /></button>}</div></div></article>)}</div>
       <aside className="reverse-prompt"><Palette size={22} /><h2>从图像里，读出它的语言。</h2><p>上传一张作品，模拟 AI 会拆开主体、镜头、光线、风格与参数。</p><button onClick={() => setReverseOpen(true)}>解析一张图片 <ArrowRight size={15} /></button></aside></div>
     {selectedPrompt && <PromptDetailModal item={selectedPrompt} onClose={() => setSelectedPrompt(null)} onUse={() => usePrompt(selectedPrompt)} />}
-    {reverseOpen && <ReverseModal onClose={() => setReverseOpen(false)} onUse={(text) => { setDraft({ prompt: text, model: "gpt-image-2", size: "1024×1024", mode: "图生图" }); navigate("/create"); }} onSave={(text) => { addPrompt({ title: "从作品拆解", category: "插画", tags: ["反向解析", "编辑感"], prompt: text, cover: image("reverse-template") }); setReverseOpen(false); setToast("已保存为我的模板"); }} />}
+    {reverseOpen && <ReverseModal onClose={() => setReverseOpen(false)} onUse={(text) => { setDraft({ prompt: text, model: "gpt-image-2", size: "auto", quality: "auto", mode: "图生图" }); navigate("/create"); }} onSave={(text) => { addPrompt({ title: "从作品拆解", category: "插画", tags: ["反向解析", "编辑感"], prompt: text, cover: image("reverse-template") }); setReverseOpen(false); setToast("已保存为我的模板"); }} />}
     {newOpen && <TemplateModal onClose={() => setNewOpen(false)} onSave={(template) => { addPrompt(template); setNewOpen(false); setToast("模板已保存"); }} />}
   </section>;
 }
@@ -505,7 +650,7 @@ export function LibraryPage() {
   const tabItems = { "我的作品": creationWorks, "收藏灵感": savedInspiration };
   const display = tabItems[tab];
   function continueWork(item) { // 使用当前作品的提示词和模型参数继续创作。
-    setDraft({ prompt: item.prompt, model: item.model, size: "1024×1024", mode: "图生图" }); navigate("/create"); setToast("已从此版本继续创作");
+    setDraft({ prompt: item.prompt, model: item.model, size: "auto", quality: "auto", mode: "图生图" }); navigate("/create"); setToast("已从此版本继续创作");
   }
   return <section className="content-page library-page"><PageHeading title={<>我的画廊</>} description="沉淀作品与收藏的灵感。" action={<button className="primary-action" onClick={() => navigate("/create")}><Plus size={16} />继续创作</button>} />
     <div className="library-tabs">{["我的作品", "收藏灵感"].map((item) => <button className={tab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{item}</button>)}</div>
