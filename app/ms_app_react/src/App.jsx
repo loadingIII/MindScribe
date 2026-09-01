@@ -8,6 +8,7 @@ import LibraryPage from "./pages/LibraryPage";
 import ProfilePage from "./pages/ProfilePage";
 import PromptsPage from "./pages/PromptsPage";
 import LoginPage from "./pages/LoginPage";
+import ImgsPromptPage from "./components/ImgsPromptPage/ImgsPromptPage";
 
 function readUser() {
   try { return JSON.parse(localStorage.getItem("mindscribe-user")); } catch { return null; }
@@ -46,6 +47,7 @@ export default function App() {
     <Route path={ROUTES.login} element={<LoginPage onLogin={setUser} />} />
     <Route element={user ? <AppShell onLogout={() => setUser(null)} /> : <Navigate to={ROUTES.login} replace />}>
       <Route path={ROUTES.create} element={<CreatePage />} />
+      <Route path="/create/prompt-builder" element={<ImgsPromptPage />} />
       <Route path={ROUTES.prompts} element={<PromptsPage />} />
       <Route path={ROUTES.library} element={<LibraryPage />} />
       <Route path={ROUTES.community} element={<CommunityPage />} />

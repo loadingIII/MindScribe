@@ -1,0 +1,545 @@
+/* The builder owns the viewport on smaller screens so the fixed app rail never squeezes it. */
+.app-frame:has(.imgs-prompt-page){
+min-height:100dvh}
+.app-frame:has(.imgs-prompt-page)>.app-main>.topbar{
+display:flex}
+.app-frame:has(.imgs-prompt-page)>.app-main>.topbar .top-actions{
+display:none}
+.app-frame:has(.imgs-prompt-page)>.app-main>.topbar .prompt-builder-top-actions{
+  display:flex;
+  align-items:center;
+gap:12px}
+.app-frame:has(.imgs-prompt-page)>.app-main>.topbar{
+position:relative}
+.app-frame:has(.imgs-prompt-page)>.app-main>.topbar>strong{
+  position:absolute;
+  left:154px;
+  transform:none;
+white-space:nowrap}
+.app-frame:has(.imgs-prompt-page)>.app-main>.topbar .prompt-builder-top-actions{
+display:contents}
+.app-frame:has(.imgs-prompt-page)>.app-main>.topbar .prompt-builder-back{
+  position:absolute;
+left:32px}
+.app-frame:has(.imgs-prompt-page)>.app-main>.topbar .prompt-builder-back::before{
+content:none}
+.app-frame:has(.imgs-prompt-page)>.app-main>.topbar .prompt-builder-back::after{
+content:none}
+.app-frame:has(.imgs-prompt-page)>.app-main>.topbar .prompt-builder-save{
+  position:absolute;
+right:32px}
+.prompt-builder-back{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  color:var(--mist);
+  font-size:11px;
+text-decoration:none}
+.prompt-builder-back:hover{
+color:var(--ink)}
+.prompt-builder-save{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  min-height:36px;
+  padding:0 14px;
+  border:0;
+  border-radius:10px;
+  background:var(--lime);
+  color:var(--ink);
+  font-size:11px;
+  font-weight:700;
+box-shadow:0 7px 16px rgba(164,182,61,.16)}
+.prompt-builder-save:hover{
+  background:#e8f49a;
+transform:translateY(-1px)}
+.app-frame:has(.imgs-prompt-page)>.app-main>.topbar>strong{
+  font-size:0;
+color:var(--ink)}
+.app-frame:has(.imgs-prompt-page)>.app-main>.topbar>strong::after{
+  content:"构建提示词";
+  font:600 16px var(--serif);
+letter-spacing:-.03em}
+.app-frame:has(.imgs-prompt-page)>.app-main>.topbar>strong::before{
+  content:"✧";
+  display:inline-block;
+  margin-right:8px;
+  color:#9aae35;
+  font-size:17px;
+line-height:1}
+.app-frame:has(.imgs-prompt-page)>.app-main>.topbar>strong::before{
+  content:"✧";
+  display:inline-block;
+  margin-right:8px;
+  color:#9aae35;
+  font-size:17px;
+line-height:1}
+.imgs-prompt-page{
+  min-height:calc(100dvh - 66px);
+  height:calc(100dvh - 66px);
+overflow:hidden}
+.imgs-prompt-page{
+  padding-top:14px;
+padding-bottom:18px}
+.imgs-prompt-header{
+margin-bottom:14px}
+.imgs-prompt-layout{
+min-height:calc(100dvh - 72px)}
+.prompt-workbench{
+min-height:0}
+.prompt-workbench .editor-wrap{
+  height:0;
+  min-height:0;
+flex:1 1 0}
+.imgs-prompt-back{
+  position:absolute;
+  top:78px;
+  left:24px;
+  z-index:2;
+  padding:7px 10px;
+  border-radius:8px;
+  background:rgba(255,253,248,.78);
+box-shadow:0 4px 14px rgba(45,49,39,.06)}
+.imgs-prompt-layout{
+  height:100%;
+min-height:0}
+.prompt-field .field-save{
+  order:3;
+  width:auto;
+  min-width:48px;
+  padding:0 9px;
+  background:#e4efa8;
+  color:#5e7416;
+  font-size:10px;
+font-weight:700}
+.prompt-field .field-save svg{
+display:none}
+.prompt-field .field-save::after{
+content:"保存"}
+.prompt-field>span{
+order:1}
+.prompt-field input{
+order:2}
+.prompt-field .field-remove{
+order:4}
+.prompt-actions .optimize-prompt-button{
+font-size:0}
+.prompt-actions .optimize-prompt-button svg{
+  width:14px;
+height:14px}
+.prompt-actions .optimize-prompt-button::after{
+  content:"优化提示词";
+font-size:10px}
+.custom-tag-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-top:16px;
+  padding:8px 0;
+border-top:1px solid #e4e5dc}
+.custom-tag-row input{
+  min-width:0;
+  flex:1;
+  padding:9px 10px;
+  border:1px solid #e2e3db;
+  border-radius:7px;
+  outline:0;
+  background:#fffdf8;
+  color:#3f443b;
+font-size:10px}
+.custom-tag-row button{
+  padding:9px 11px;
+  border:0;
+  border-radius:7px;
+  background:#e4efa8;
+  color:#536516;
+  font-size:10px;
+  font-weight:700;
+white-space:nowrap}
+.custom-dialog-backdrop{
+  position:fixed;
+  inset:0;
+  z-index:80;
+  display:grid;
+  place-items:center;
+  padding:20px;
+  background:rgba(39,43,36,.28);
+backdrop-filter:blur(7px)}
+.prompt-status button{
+display:none}
+.imgs-prompt-page .field-list{
+display:none}
+.prompt-editor-surface{
+  display:flex;
+  min-height:180px;
+  flex:1;
+  flex-direction:column;
+  overflow:auto;
+  border-radius:15px;
+background:#f5f4ee}
+.prompt-chip-list{
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  gap:8px;
+padding:4px 17px 17px}
+.prompt-chip{
+  display:flex;
+  align-items:flex-start;
+  gap:7px;
+  width:100%;
+  box-sizing:border-box;
+  padding:8px 9px;
+  border:1px solid #becd73;
+  border-radius:8px;
+  background:#e4efa8;
+  color:#536516;
+  font-size:11px;
+box-shadow:0 2px 0 rgba(127,147,31,.08)}
+.prompt-chip span{
+  font-weight:700;
+white-space:nowrap}
+.prompt-chip textarea{
+  min-width:0;
+  min-height:22px;
+  flex:1;
+  resize:none;
+  overflow:hidden;
+  padding:0;
+  border:0;
+  outline:0;
+  background:transparent;
+  color:#272b24;
+font:11px/1.6 Georgia,serif}
+.prompt-chip textarea::placeholder{
+color:#7d8b42}
+.prompt-chip button{
+  display:grid;
+  place-items:center;
+  width:18px;
+  height:18px;
+  padding:0;
+  border:0;
+  border-radius:50%;
+  background:rgba(83,101,22,.1);
+  color:#6c7d20;
+  font-size:14px;
+line-height:1}
+.prompt-chip button:hover{
+background:rgba(83,101,22,.2)}
+.prompt-editor-surface textarea{
+  width:100%;
+  min-height:130px;
+  flex:1;
+  resize:none;
+  padding:10px 17px 17px;
+  border:0;
+  border-radius:15px;
+  outline:0;
+  background:transparent;
+  color:#3d4339;
+font:14px/1.9 Georgia,serif}
+.prompt-rich-editor{
+  display:block;
+  min-height:0;
+  height:100%;
+  max-height:100%;
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding:17px;
+  white-space:pre-wrap;
+  word-break:break-word;
+  line-height:1.8;
+  cursor:text;
+overscroll-behavior:contain}
+.prompt-rich-editor:focus{
+box-shadow:inset 0 0 0 2px rgba(190,205,115,.45)}
+.prompt-free-text{
+  white-space:pre-wrap;
+  color:#3d4339;
+font:14px/1.9 Georgia,serif}
+.prompt-chip-list{
+display:contents}
+.prompt-rich-editor .prompt-chip{
+  display:block;
+  position:relative;
+  margin:4px 0;
+  white-space:normal;
+  border-radius:8px;
+  padding:10px 12px;
+font-size:14px}
+.prompt-rich-editor .prompt-chip{
+  width:100%;
+  max-width:100%;
+box-sizing:border-box}
+.prompt-rich-editor .prompt-chip>span{
+font-size:14px}
+.prompt-rich-editor .prompt-chip textarea{
+  display:block;
+  width:auto;
+  min-height:26px;
+  max-height:none;
+  flex:1;
+  overflow:hidden;
+  padding:0;
+  border-radius:0;
+  background:transparent;
+font:14px/1.7 Georgia,serif}
+.prompt-rich-editor .prompt-chip button{
+flex:none}
+.finish-button{
+  font-size:0;
+  min-width:102px;
+justify-content:center}
+.finish-button::after{
+  content:"带入创作";
+font-size:12px}
+.custom-dialog{
+  width:min(420px,calc(100vw - 32px));
+  padding:26px;
+  border:1px solid rgba(39,43,36,.08);
+  border-radius:18px;
+  background:#fffdf8;
+  box-shadow:0 24px 70px rgba(39,43,36,.2);
+animation:custom-dialog-in .2s ease both}
+.custom-dialog-icon{
+  display:grid;
+  place-items:center;
+  width:32px;
+  height:32px;
+  border-radius:9px;
+  background:#e4efa8;
+  color:#657b18;
+  font-size:22px;
+line-height:1}
+.custom-dialog h2{
+  margin:18px 0 7px;
+  color:#272b24;
+  font:600 23px Georgia,serif;
+letter-spacing:-.03em}
+.custom-dialog p{
+  margin:0 0 20px;
+  color:#8a9084;
+  font-size:11px;
+line-height:1.6}
+.custom-dialog label{
+  display:grid;
+  gap:8px;
+  color:#72796c;
+  font-size:10px;
+font-weight:700}
+.custom-dialog label input{
+  width:100%;
+  padding:12px 13px;
+  border:1px solid #dfe2d7;
+  border-radius:9px;
+  outline:0;
+  background:#f7f7f2;
+  color:#272b24;
+font-size:12px}
+.custom-dialog label input:focus{
+  border-color:#b9ca61;
+box-shadow:0 0 0 3px rgba(217,232,106,.22)}
+.custom-dialog-actions{
+  display:flex;
+  justify-content:flex-end;
+  gap:9px;
+margin-top:24px}
+.custom-dialog-actions button{
+  padding:10px 16px;
+  border:0;
+  border-radius:9px;
+  background:#eff0e9;
+  color:#72796c;
+font-size:11px}
+.custom-dialog-actions button.confirm{
+  background:#d9e86a;
+  color:#536516;
+font-weight:700}
+.custom-dialog-actions button.confirm:disabled{
+  opacity:.45;
+cursor:not-allowed}
+@keyframes custom-dialog-in{
+  from{
+    opacity:0;
+  transform:translateY(8px) scale(.98)}
+  to{
+    opacity:1;
+  transform:none}
+}
+@media(max-width:1180px){
+  .app-frame:has(.imgs-prompt-page){
+  grid-template-columns:0 minmax(0,1fr)}
+  .app-frame:has(.imgs-prompt-page) .side-nav{
+  display:none}
+  .app-frame:has(.imgs-prompt-page) .app-main{
+  grid-column:2}
+  .imgs-prompt-page{
+  padding:20px 24px 26px}
+  .imgs-prompt-layout{
+  grid-template-columns:minmax(0,1fr) minmax(320px,.95fr)}
+}
+@media(max-width:760px){
+  .imgs-prompt-page{
+    height:auto;
+    min-height:calc(100dvh - 66px);
+    overflow:visible;
+  padding:14px 12px 20px}
+  .imgs-prompt-header{
+  margin-bottom:12px}
+  .imgs-prompt-layout{
+    height:auto;
+    min-height:0;
+    grid-template-columns:1fr;
+  overflow:visible}
+  .tag-workbench{
+    border-right:0;
+  border-bottom:1px solid #dedfd5}
+  .tag-workbench-body{
+    height:auto;
+    min-height:0;
+  display:block}
+  .level-one{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:4px;
+    border-right:0;
+    border-bottom:1px solid #e4e5dc;
+  padding:10px}
+  .level-one button{
+    padding:9px 8px;
+  font-size:10px}
+  .level-two{
+    max-height:none;
+  padding:16px}
+  .prompt-workbench{
+  min-height:430px}
+  .prompt-workbench .editor-wrap{
+    height:300px;
+    min-height:300px;
+  flex:none}
+  .prompt-heading{
+  padding:15px 16px}
+  .field-list,.editor-wrap{
+    padding-left:16px;
+  padding-right:16px}
+  .prompt-status{
+  padding:12px 16px 16px}
+}
+@media(max-width:420px){
+  .imgs-prompt-title{
+  font-size:16px}
+  .back-button,.finish-button{
+  font-size:10px}
+  .sub-category-list,.tag-grid{
+  grid-template-columns:repeat(2,minmax(0,1fr))}
+  .prompt-heading{
+    align-items:flex-start;
+  gap:8px}
+  .prompt-actions{
+    flex-wrap:wrap;
+  justify-content:flex-end}
+  .prompt-actions .optimize-prompt-button{
+  padding:0 8px}
+  .prompt-field>span{
+    flex-basis:65px;
+  font-size:9px}
+}
+.prompt-rich-editor:has(.prompt-chip) > div:not(.prompt-chip):empty,
+.prompt-rich-editor:has(.prompt-chip) > div:not(.prompt-chip):has(> br:only-child){display:none}
+
+/* 文本也作为芯片编辑，避免通用大文本框规则撑开芯片高度。 */
+.prompt-rich-editor .prompt-chip textarea{
+  width:auto;
+  min-height:22px;
+  max-height:none;
+  flex:1;
+  resize:none;
+  overflow:hidden;
+  padding:0;
+  border:0;
+  outline:0;
+  background:transparent;
+  color:#272b24;
+  font:11px/1.6 Georgia,serif;
+}
+.prompt-rich-editor .prompt-text-chip{
+  border-color:#d8ddd0;
+  background:#fffdf8;
+  color:#68705f;
+}
+.prompt-rich-editor .prompt-text-chip textarea{
+  color:#3d4339;
+}
+
+/* 芯片采用清晰的标签栏层级，用户输入与结构化标签一眼可区分。 */
+.prompt-rich-editor .prompt-chip{
+  min-height:48px;
+  padding:10px 12px 10px 14px;
+  border-radius:12px;
+  box-shadow:0 1px 0 rgba(78,91,31,.08), 0 5px 14px rgba(71,79,49,.05);
+  transition:border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.prompt-rich-editor .prompt-chip:focus-within{
+  border-color:#c6b28f;
+  box-shadow:0 0 0 3px rgba(214,198,169,.28), 0 6px 16px rgba(71,79,49,.08);
+}
+/* 标签悬浮在首行左侧，自身只占文字所需宽度，点击可穿透到下方文本区。 */
+.prompt-rich-editor .prompt-chip>span{
+  position:absolute;
+  top:10px;
+  left:14px;
+  padding:5px 8px;
+  border-radius:7px;
+  background:rgba(83,101,22,.1);
+  color:#5b6e19;
+  font-size:12px;
+  line-height:1.3;
+  white-space:nowrap;
+  pointer-events:none;
+}
+.prompt-rich-editor .prompt-text-chip{
+  border-color:#e3ded3;
+  background:#fffefa;
+}
+.prompt-rich-editor .prompt-text-chip>span{
+  background:#f3efe6;
+  color:#756b5c;
+}
+.prompt-rich-editor .prompt-field-chip{
+  border-color:#e8dfcf;
+  background:#f8f3e9;
+}
+.prompt-rich-editor .prompt-field-chip>span{
+  background:#f0e8d9;
+  color:#796b57;
+}
+.prompt-rich-editor .prompt-chip button{
+  width:24px;
+  height:24px;
+  background:#f3eee4;
+  color:#8a7a62;
+  font-size:16px;
+  transition:background .18s ease, color .18s ease, transform .18s ease;
+}
+.prompt-rich-editor .prompt-chip button:hover{
+  background:#e6dac5;
+  color:#68553c;
+  transform:scale(1.05);
+}
+
+/* 正文占满芯片整行：首行通过 JS 测量的 textIndent 避开标签，换行后延伸到标签下方。 */
+.prompt-rich-editor .prompt-chip textarea{
+  width:100%;
+  box-sizing:border-box;
+  min-width:0;
+  min-height:30px;
+  padding-right:36px;
+  font-size:15px;
+  line-height:1.65;
+}
+.prompt-rich-editor .prompt-chip button{
+  position:absolute;
+  top:10px;
+  right:12px;
+}
