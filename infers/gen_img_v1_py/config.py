@@ -30,7 +30,12 @@ def load_env(path: str | Path = ENV_PATH) -> None:
     if not env_path.exists():
         return
 
-    for line in env_path.read_text(encoding="utf-8").splitlines():
+    # .env 为可选配置，读取失败（权限不足、文件损坏等）时静默跳过，避免阻断服务启动。
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
         value = line.strip()
         if not value or value.startswith("#") or "=" not in value:
             continue
