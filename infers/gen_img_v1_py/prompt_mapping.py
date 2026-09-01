@@ -1,6 +1,10 @@
 """图片生成提示词的通用映射规则。"""
 
 import json
+import re
+
+# 匹配用户提示词中的参考图标记 [序号:图片名]，序号为参考图的 1 基下标。
+REFERENCE_MARK = re.compile(r"\[(\d+):([^\]\n]+)\]")
 
 
 def build_prompt(prompt: str) -> str:
@@ -19,8 +23,8 @@ def build_prompt_from_payload(payload: str, fallback: str) -> str:
     """优先解析前端组装的结构化提示词 JSON，失败时回退到普通文本提示词。
 
     payload 为前端 buildGenImgsPrompt 组装的 JSON 字符串，包含
-    system_prompt、user_prompt、tags_prompt 三部分；解析成功时把
-    三部分拼接为模型可读文本，否则按普通文本提示词处理。
+    system_prompt、user_prompt、references、tags_prompt 四部分；
+    解析成功时把各部分拼接为模型可读文本，否则按普通文本提示词处理。
     """
     try:
         data = json.loads(payload)
@@ -30,13 +34,29 @@ def build_prompt_from_payload(payload: str, fallback: str) -> str:
     if not isinstance(data, dict) or not str(data.get("user_prompt", "")).strip():
         return build_prompt(fallback)
 
+    # 参考图文件名列表：与前端 files 顺序一致，标记中的序号即下标 + 1。
+    references = [
+        str(name).strip()
+        for name in (data.get("references") or [])
+        if str(name).strip()
+    ]
+
     parts: list[str] = []
     # 系统提示词在前，用于约束生成行为。
     system_prompt = str(data.get("system_prompt", "")).strip()
     if system_prompt:
         parts.append(f"【系统要求】{system_prompt}")
-    # 用户提示词为核心描述。
-    parts.append(f"【用户描述】{str(data.get('user_prompt', '')).strip()}")
+    # 参照图清单在系统要求与用户描述之间，按序号列出，供模型对照标记引用。
+    if references:
+        ref_lines = [
+            f"参考图{index}：{name}"
+            for index, name in enumerate(references, start=1)
+        ]
+        parts.append("【参照图】\n" + "\n".join(ref_lines))
+    # 用户提示词为核心描述；把 [1:头像1.jpg] 改写为 [参考图1:头像1.jpg]，
+    # 与参照图清单中的称呼保持一致，便于模型关联引用。
+    user_prompt = REFERENCE_MARK.sub(r"[参考图\1:\2]", str(data.get("user_prompt", "")).strip())
+    parts.append(f"【用户描述】{user_prompt}")
     # 标签提示词为结构化补充描述，逐行列出。
     tags = data.get("tags_prompt") or []
     if isinstance(tags, list):

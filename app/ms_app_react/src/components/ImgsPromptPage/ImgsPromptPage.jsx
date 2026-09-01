@@ -59,6 +59,19 @@ const GROUPS = {
   }
 };
 
+/** 查找字段分隔冒号的位置：跳过 [序号:图片名] 参考图标记内部的冒号，避免用户输入被误解析为标签芯片。 */
+function findFieldSeparator(part) {
+  // depth 记录未闭合的 "[" 数量，只有深度为 0 时的冒号才是真正的字段分隔符。
+  let depth = 0;
+  for (let i = 0; i < part.length; i++) {
+    const char = part[i];
+    if (char === "[") depth += 1;
+    else if (char === "]") depth = Math.max(0, depth - 1);
+    else if (char === ":" && depth === 0) return i;
+  }
+  return -1;
+}
+
 function parseChips(value) {
   const source = String(value || "");
   const parsed = source
@@ -68,7 +81,7 @@ function parseChips(value) {
     .map((part, index) => {
       const userInput = part.match(/^用户输入\s*[：:]\s*(.*)$/);
       if (userInput) return { id: `text-${index}`, type: "text", value: userInput[1].trim() };
-      const separator = part.indexOf(":");
+      const separator = findFieldSeparator(part);
       if (separator > -1) {
         return {
           id: `field-${index}`,

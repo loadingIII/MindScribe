@@ -39,18 +39,33 @@ def test_build_prompt_preserves_user_prompt() -> None:
 
 
 def test_build_prompt_from_payload_assembles_sections() -> None:
-    """结构化提示词 JSON 应组装出系统要求、用户描述和标签补充三部分。"""
+    """结构化提示词 JSON 应按序组装出系统要求、参照图、用户描述和标签补充四部分。"""
     payload = (
         '{"system_prompt": "生成高质量图片", '
-        '"user_prompt": "一只在云上的猫", '
+        '"user_prompt": "一只[1:猫.jpg]在[2:云朵.png]上的猫", '
+        '"references": ["猫.jpg", "云朵.png"], '
         '"tags_prompt": [{"tag_name": "风格", "tag_value": "水彩"}, {"tag_name": "", "tag_value": "脏数据"}]}'
     )
     result = build_prompt_from_payload(payload, "回退文本")
     assert "【系统要求】生成高质量图片" in result
-    assert "【用户描述】一只在云上的猫" in result
+    # 参照图清单位于系统要求之后、用户描述之前，按序号列出文件名。
+    assert "【参照图】\n参考图1：猫.jpg\n参考图2：云朵.png" in result
+    # 用户提示词中的标记应补充为 [参考图序号:图片名]，与参照图清单称呼一致。
+    assert "【用户描述】一只[参考图1:猫.jpg]在[参考图2:云朵.png]上的猫" in result
     assert "- 风格: 水彩" in result
     # 无名称的标签应被剔除。
     assert "脏数据" not in result
+    # 各部分按系统要求、参照图、用户描述、标签补充的顺序排列。
+    assert result.index("【系统要求】") < result.index("【参照图】") < result.index("【用户描述】") < result.index("【标签补充】")
+
+
+def test_build_prompt_from_payload_without_references() -> None:
+    """payload 缺省 references 时不应输出参照图部分，但标记改写仍然生效。"""
+    payload = '{"user_prompt": "一只[1:猫.jpg]在云上的猫", "tags_prompt": []}'
+    result = build_prompt_from_payload(payload, "回退文本")
+    assert "【参照图】" not in result
+    # 标记改写不依赖参照图清单：语义上 [1:猫.jpg] 始终指向参考图。
+    assert "【用户描述】一只[参考图1:猫.jpg]在云上的猫" in result
 
 
 def test_build_prompt_from_payload_falls_back_on_invalid() -> None:

@@ -6,18 +6,20 @@ export const GEN_IMGS_SYSTEM_PROMPT = "你是一个专业的图片生成和图�
 /**
  * 组装生图请求的完整提示词 JSON。
  *
- * 最终结构由三部分组成：
+ * 最终结构由四部分组成：
  * - system_prompt：系统提示词，用于引导模型生成符合要求的图片；
  * - user_prompt：用户提示词，包含用户描述和参考图标记（如 [2:夕阳1.jpg]）；
+ * - references：参考图文件名列表（按序号排列，序号即标记中的 1 基下标），供后端组装参照图清单；
  * - tags_prompt：标签提示词数组，每项为 { tag_name, tag_value }，用于补充结构化描述。
  *
  * @param {string} userPrompt 用户提示词（创作页输入框或构建页"用户输入"芯片内容）。
  * @param {Array<{key: string, value: string}>} [tags] 标签芯片列表（构建页 draft.tags）。
  * @param {string} [additionalSystemPrompt] 高级设置中追加的系统提示词。
- * @returns {{system_prompt: string, user_prompt: string, tags_prompt: Array<{tag_name: string, tag_value: string}>}}
+ * @param {Array<{file: {name: string}}>} [references] 参考图列表（创作页 files，顺序与标记序号一致）。
+ * @returns {{system_prompt: string, user_prompt: string, references: string[], tags_prompt: Array<{tag_name: string, tag_value: string}>}}
  * @throws {Error} 用户提示词为空时抛出，提示需要先输入创作内容。
  */
-export function buildGenImgsPrompt(userPrompt, tags = [], additionalSystemPrompt = "") {
+export function buildGenImgsPrompt(userPrompt, tags = [], additionalSystemPrompt = "", references = []) {
   // 用户提示词必须非空，否则后续生成无从谈起。
   const normalizedPrompt = String(userPrompt ?? "").trim();
   if (!normalizedPrompt) throw new Error("请输入创作内容");
@@ -30,10 +32,16 @@ export function buildGenImgsPrompt(userPrompt, tags = [], additionalSystemPrompt
     }))
     .filter((tag) => tag.tag_name);
 
+  // 参考图按序收敛为文件名列表，剔除无名项，顺序与 [序号:图片名] 标记一致。
+  const referenceNames = (Array.isArray(references) ? references : [])
+    .map((item) => String(item?.file?.name ?? "").trim())
+    .filter(Boolean);
+
   const assembled = {
     // 基础系统提示词与高级设置的追加内容拼接为最终 system_prompt。
     system_prompt: [GEN_IMGS_SYSTEM_PROMPT, String(additionalSystemPrompt ?? "").trim()].filter(Boolean).join("\n\n"),
     user_prompt: normalizedPrompt,
+    references: referenceNames,
     tags_prompt: tagsPrompt
   };
   // 组装完成后输出日志，便于在浏览器控制台核对最终提交给后端的提示词内容。

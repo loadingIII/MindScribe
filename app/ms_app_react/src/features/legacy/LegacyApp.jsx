@@ -49,22 +49,49 @@ function mapThread(thread, title) {
   return { id: thread.threadId || thread.id, title: title || thread.title || thread.prompt || "未命名创作", prompt: thread.prompt || "", status: attempts.at(-1)?.status || statusText(thread.status), createdAt: thread.createdAt || "刚刚", thumbnail: references[0]?.url || references[0]?.objectKey || references[0], references, attempts };
 }
 
-// 将提示词构建页带回的标签压缩为标签栏内容：总长限制在 20 字左右，被截断的标签以 ... 结尾。
-function buildTagChips(tags) {
-  const list = [];
-  let used = 0;
-  for (const tag of tags) {
-    const text = tag.value ? `${tag.key}：${tag.value}` : tag.key;
-    if (used + text.length <= 20) {
-      list.push(text);
-      used += text.length;
-      continue;
-    }
-    const remain = 20 - used;
-    if (remain >= 2) list.push(`${text.slice(0, remain)}...`);
-    break;
+// 将提示词构建页带回的标签转换为标签栏芯片数据：参考图标记解析为独立段，每个标签独立限制 20 字符。
+// 单个标签在标签栏的最大展示字符数（按显示文本计算，参考图标记按图片名计）。
+const TAG_CHIP_MAX = 50;
+
+/** 把标签值拆为文本段与参考图段：[序号:图片名] 识别为参考图段，仅保留图片名用于展示。 */
+function splitTagSegments(value) {
+  const source = String(value || "");
+  const segments = [];
+  const pattern = /\[\d+:([^\]]+)\]/g;
+  let last = 0;
+  let match;
+  while ((match = pattern.exec(source))) {
+    if (match.index > last) segments.push({ type: "text", text: source.slice(last, match.index) });
+    segments.push({ type: "ref", text: match[1] });
+    last = match.index + match[0].length;
   }
-  return list;
+  if (last < source.length) segments.push({ type: "text", text: source.slice(last) });
+  return segments;
+}
+
+/** 构建标签栏芯片：每个标签独立计算 20 字符预算（不再共享总预算），超限时在当前段内截断并追加省略号。 */
+function buildTagChips(tags) {
+  return tags.map((tag) => {
+    // 键名作为首个文本段参与预算；无值时仅展示键名。
+    const segments = tag.value
+      ? [{ type: "text", text: `${tag.key}：` }, ...splitTagSegments(tag.value)]
+      : [{ type: "text", text: tag.key }];
+    const list = [];
+    let used = 0;
+    for (const segment of segments) {
+      const remain = TAG_CHIP_MAX - used;
+      if (remain <= 0) break;
+      if (segment.text.length <= remain) {
+        list.push(segment);
+        used += segment.text.length;
+        continue;
+      }
+      // 当前段超出剩余预算：文本段或参考图名均就地截断并追加省略号。
+      list.push({ type: segment.type, text: `${segment.text.slice(0, remain)}...` });
+      break;
+    }
+    return list;
+  });
 }
 
 function statusText(status) {
@@ -413,8 +440,8 @@ export function CreatePage() {
     const generatedTitle = threadId ? taskName : defaultThreadTitle(taskThreads);
     if (!threadId) setTaskName(generatedTitle);
     const form = new FormData();
-    // prompt 字段现在存放结构化提示词 JSON（system_prompt/user_prompt/tags_prompt），由后端解析。
-    form.append("prompt", JSON.stringify(buildGenImgsPrompt(prompt.trim(), draftTags, additionalSystemPrompt)));
+    // prompt 字段现在存放结构化提示词 JSON（system_prompt/user_prompt/references/tags_prompt），由后端解析。
+    form.append("prompt", JSON.stringify(buildGenImgsPrompt(prompt.trim(), draftTags, additionalSystemPrompt, files)));
     form.append("n", String(count));
     form.append("userId", currentUserId);
     form.append("title", generatedTitle);
@@ -433,8 +460,8 @@ export function CreatePage() {
   async function retryThread(id) {
     if (!currentUserId) { setToast("请先登录"); return; }
     const form = new FormData();
-    // prompt 字段现在存放结构化提示词 JSON（system_prompt/user_prompt/tags_prompt），由后端解析。
-    form.append("prompt", JSON.stringify(buildGenImgsPrompt(prompt.trim(), draftTags, additionalSystemPrompt)));
+    // prompt 字段现在存放结构化提示词 JSON（system_prompt/user_prompt/references/tags_prompt），由后端解析。
+    form.append("prompt", JSON.stringify(buildGenImgsPrompt(prompt.trim(), draftTags, additionalSystemPrompt, files)));
     form.append("n", String(count));
     form.append("userId", currentUserId);
     form.append("model", draft.model || "gpt-image-2"); form.append("size", normalizeSize(draft.size));
@@ -540,7 +567,9 @@ export function CreatePage() {
           <div className="canvas-tag-head"><span>标签栏</span><small>{draftTags.length ? `${draftTags.length} 个标签` : "暂无标签"}</small></div>
           <div className="canvas-tag-bar">
             {tagChips.length
-              ? tagChips.map((text, index) => <span className={`canvas-tag tone-${index % 4}`} key={`${index}-${text}`}>{text}</span>)
+              ? tagChips.map((segments, index) => <span className={`canvas-tag tone-${index % 4}`} key={index}>{segments.map((segment, part) => segment.type === "ref"
+                ? <span className="tag-ref-chip" key={part}>{segment.text}</span>
+                : <span key={part}>{segment.text}</span>)}</span>)
               : <span className="canvas-tag-placeholder">在提示词构建页添加标签后，这里会展示对应内容</span>}
           </div>
         </div>
