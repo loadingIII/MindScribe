@@ -88,6 +88,14 @@ Java 测试可在 `app/ms_backend_java` 目录执行 `mvn test`。
 - Python 使用四个空格缩进，模块和函数使用 snake_case，类使用 PascalCase。
 - 提交信息使用简洁的约定式前缀，例如 `feat:`、`fix:`、`refactor:`、`build:` 和 `docs:`。
 
+## 项目分支
+
+- `main`：主开发分支。
+- `feat/`：功能分支，用于开发新功能或修复问题。
+- `fix/`：修复分支，用于修复已知问题。
+- `dev/`：开发分支，用于集成新功能和修复。
+- `target/`：表示目标分支，用于某一个阶段的分支合并。
+- `codex/`：借助 Codex 生成的代码分支，用于快速原型开发。
 ## 相关文档
 
 - [`app/README.md`](app/README.md)
