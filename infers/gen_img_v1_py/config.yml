@@ -1,0 +1,29 @@
+# OpenAI 格式多模态模型配置。敏感值从同目录 .env 注入。
+# base_url 可替换为任何 OpenAI 兼容服务端点（如 Qwen-VL、vLLM 等）。
+base_url: ${OPENAI_API_BASE}
+api_key: ${OPENAI_API_KEY}
+
+# 图片理解（Vision）模型配置
+vision:
+  model: gpt-image-2
+
+# 图片生成（Image Generation）模型配置
+image_generation:
+  model: gpt-image-2
+  size: auto
+  n: 1
+  quality: high
+  output_format: png
+  # 生成图片上传到 OSS 后使用的对象名前缀，不需要提前创建目录。
+  oss_prefix: generated-images
+  # 前端参考图片上传到 OSS 后使用的对象名前缀，不需要提前创建目录。
+  reference_oss_prefix: reference-images
+
+# OSS 连接信息由 config.yml 的占位符从 .env 注入。
+oss:
+  endpoint: ${OSS_ENDPOINT}
+  access_key_id: ${OSS_ACCESS_KEY_ID}
+  access_key_secret: ${OSS_ACCESS_KEY_SECRET}
+  bucket_name: ${OSS_BUCKET_NAME}
+  region: ${OSS_REGION}
+  signature_expires: 3600

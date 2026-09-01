@@ -36,9 +36,9 @@ pnpm-debug.log*
 output/
 
 # Secrets & config
-config.yml
 .env
 *.key
+exp/gen_img_demo/config.yml
 
 # OS files
 .DS_Store
