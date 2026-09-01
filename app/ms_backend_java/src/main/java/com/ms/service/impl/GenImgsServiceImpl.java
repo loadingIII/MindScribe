@@ -130,7 +130,9 @@ public class GenImgsServiceImpl implements GenImgsService {
             List<AttemptEntity> stored = dbMapper.findAttemptsByThread(threadId);
             if (stored == null || stored.isEmpty()) throw new IllegalArgumentException("Thread 不存在: " + threadId);
             attempts = new ArrayList<>();
-            for (AttemptEntity item : stored) attempts.add(new AttemptVO(item.getId(), item.getExternalTaskId(), item.getStatus(), List.of(), item.getErrorMessage()));
+            for (AttemptEntity item : stored) {
+                attempts.add(toAttemptVO(item, List.of()));
+            }
             threads.put(threadId, attempts);
         }
         List<AttemptVO> refreshed = new ArrayList<>();
@@ -138,7 +140,18 @@ public class GenImgsServiceImpl implements GenImgsService {
             try {
                 TaskVO task = getTask(attempt.taskId());
                 List<String> normalizedUrls = (task.imageUrls() == null ? List.<String>of() : task.imageUrls()).stream().map(GenImgsServiceImpl::normalizeImageUrl).toList();
-                refreshed.add(new AttemptVO(attempt.attemptId(), task.taskId(), task.status(), normalizedUrls, task.error()));
+                refreshed.add(new AttemptVO(
+                    attempt.attemptId(),
+                    task.taskId(),
+                    task.status(),
+                    normalizedUrls,
+                    task.error(),
+                    attempt.prompt(),
+                    attempt.modelName(),
+                    attempt.size(),
+                    attempt.quality(),
+                    attempt.outputFormat()
+                ));
                 AttemptEntity update = new AttemptEntity();
                 update.setId(attempt.attemptId()); update.setStatus(task.status());
                 List<Map<String, Object>> resultImages = new ArrayList<>();
@@ -164,7 +177,18 @@ public class GenImgsServiceImpl implements GenImgsService {
 
     private AttemptVO submitAttempt(GenerateImageDTO request, List<String> referenceUrls) throws IOException, InterruptedException {
         CreateTaskVO task = create(request, referenceUrls);
-        return new AttemptVO(UUID.randomUUID().toString(), task.taskId(), PENDING, List.of(), null);
+        return new AttemptVO(
+            UUID.randomUUID().toString(),
+            task.taskId(),
+            PENDING,
+            List.of(),
+            null,
+            request.getPrompt(),
+            request.getModel(),
+            request.getSize(),
+            request.getQuality(),
+            request.getOutputFormat()
+        );
     }
 
     @Override
@@ -219,6 +243,22 @@ public class GenImgsServiceImpl implements GenImgsService {
         attempt.setSize(request.getSize()); attempt.setQuality(request.getQuality()); attempt.setOutputFormat(request.getOutputFormat());
         attempt.setRequestedCount(request.getN() == null ? 1 : request.getN()); attempt.setResults("[]");
         attempt.setExternalTaskId(source.taskId()); return attempt;
+    }
+
+    /** 将数据库 Attempt 映射为轮询接口使用的响应对象，保留可回填的生成参数。 */
+    private static AttemptVO toAttemptVO(AttemptEntity source, List<String> imageUrls) {
+        return new AttemptVO(
+            source.getId(),
+            source.getExternalTaskId(),
+            source.getStatus(),
+            imageUrls,
+            source.getErrorMessage(),
+            source.getPrompt(),
+            source.getModelName(),
+            source.getSize(),
+            source.getQuality(),
+            source.getOutputFormat()
+        );
     }
 
     private static void add(List<HttpClientUtil.Part> parts, String name, String value) {

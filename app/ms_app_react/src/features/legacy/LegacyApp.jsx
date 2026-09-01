@@ -22,6 +22,23 @@ function readablePrompt(value) {
   return text;
 }
 
+/** 从 Attempt 保存的结构化提示词中恢复标签；旧文本提示词返回空数组。 */
+function attemptTags(value, fallback) {
+  try {
+    const data = JSON.parse(String(value || ""));
+    const tags = data?.tags_prompt || fallback;
+    if (!Array.isArray(tags)) return [];
+    return tags
+      .map((tag) => ({
+        key: String(tag?.tag_name || "").trim(),
+        value: String(tag?.tag_value || "").trim()
+      }))
+      .filter((tag) => tag.key);
+  } catch {
+    return [];
+  }
+}
+
 // 任务线程与尝试记录的统一视图映射。
 function mapThread(thread, title) {
   const references = typeof thread.referenceImages === "string" ? (() => { try { return JSON.parse(thread.referenceImages); } catch { return []; } })() : (thread.referenceImages || []);
@@ -37,6 +54,7 @@ function mapThread(thread, title) {
       imageUrls,
       modelName: item.modelName,
       prompt: readablePrompt(item.prompt),
+      tags: attemptTags(item.prompt, item.tagsPrompt || item.tags_prompt),
       size: item.size,
       quality: item.quality,
       error: item.error || "",
@@ -150,7 +168,7 @@ function downloadResultImage(url, filename) {
   triggerDownload(url, filename);
 }
 import { image } from "../../assets/mockData";
-import { useCachedState, useStore } from "../../store/AppStore";
+import { loadCachedReferences, saveCachedReferences, useCachedState, useStore } from "../../store/AppStore";
 import { buildGenImgsPrompt, GEN_IMGS_SYSTEM_PROMPT } from "../../utils/prompts/gen_imgs_prompts";
 import SelectField from "../../components/SelectField";
 
@@ -275,12 +293,24 @@ export function CreatePage() {
   // 提示词以全局草稿为唯一数据源：输入实时写回 draft，跳转提示词构建页时内容保持一致。
   const [prompt, setPrompt] = useState(draft.prompt || "");
   // 任务相关状态通过内存缓存跨页保留，避免在创作页与提示词构建页之间切换时丢失。
-  const [files, setFiles] = useCachedState("create:files", []);
+  // 历史 Attempt 的参考图是远程 URL；刷新后根据草稿中的可序列化元数据恢复为同一数据结构。
+  const [files, setFiles] = useCachedState("create:files", () => (draft.references || []).map((item, index) => ({
+    id: item.id || `restored-ref-${index}`,
+    url: item.url || item,
+    file: {
+      name: item.file?.name || item.name || `参考图 ${index + 1}`,
+      type: item.file?.type || item.type || "image/*"
+    }
+  })));
+  const [referencesRestored, setReferencesRestored] = useState(false);
   const [referencesLocked, setReferencesLocked] = useCachedState("create:referencesLocked", false);
   const count = 1;
   const [status, setStatus] = useCachedState("create:status", "idle");
   const [threadId, setThreadId] = useCachedState("create:threadId", "");
+  const [attemptId, setAttemptId] = useCachedState("create:attemptId", "");
   const [results, setResults] = useCachedState("create:results", []);
+  // 标签栏折叠状态单独缓存，便于在创作页与提示词构建页之间切换时保持当前视图。
+  const [tagsCollapsed, setTagsCollapsed] = useCachedState("create:tagsCollapsed", false);
   const [previewResult, setPreviewResult] = useState(null);
   const [promptFullscreen, setPromptFullscreen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -322,6 +352,33 @@ export function CreatePage() {
           return mapThread({ ...thread, attempts });
         }));
         setTaskThreads(hydrated);
+        // 刷新后恢复当前线程及所选 Attempt，避免回到“新任务”初始状态。
+        const currentThread = hydrated.find((item) => item.id === threadId);
+        const currentAttempt = currentThread?.attempts.find((item) => item.id === attemptId)
+          || currentThread?.attempts.at(-1);
+        if (currentThread && currentAttempt) {
+          setAttemptId(currentAttempt.id);
+          setPrompt(currentAttempt.prompt || "");
+          setDraft((current) => ({
+            ...current,
+            prompt: currentAttempt.prompt || "",
+            tags: currentAttempt.tags || [],
+            model: currentAttempt.modelName || current.model,
+            size: currentAttempt.size || current.size,
+            quality: currentAttempt.quality || current.quality,
+            references: currentThread.references || []
+          }));
+          setStatus(currentAttempt.rawStatus === "succeeded" || currentAttempt.imageUrls.length
+            ? "done"
+            : currentAttempt.rawStatus === "failed" ? "failed" : "working");
+          setResults(currentAttempt.imageUrls.map((url, index) => ({
+            id: `${currentAttempt.id}-${index}`,
+            image: url,
+            title: `${mode} · ${index + 1}`,
+            version: "初稿",
+            attemptNumber: currentAttempt.attemptNo
+          })));
+        }
       } catch (error) { setToast(error.message); }
     }
 
@@ -333,12 +390,29 @@ export function CreatePage() {
 
   useEffect(() => {
     // 创作页的提示词实时同步到全局草稿，供提示词构建页读取同一份内容。
-    if (prompt !== draft.prompt) setDraft({ ...draft, prompt });
+    if (prompt !== draft.prompt) setDraft((current) => ({ ...current, prompt }));
   }, [prompt]);
   useEffect(() => {
     // 参考图同步到全局草稿（仅内存共享），提示词构建页通过 draft.references 读取。
-    setDraft({ ...draft, references: files });
+    setDraft((current) => ({ ...current, references: files }));
   }, [files]);
+  useEffect(() => {
+    // 页面刷新后从 IndexedDB 恢复本地参考图，并重新建立可显示的 Object URL。
+    let cancelled = false;
+    loadCachedReferences()
+      .then((items) => {
+        if (cancelled || files.length || !items.length) return;
+        setFiles(items.map((item) => ({ id: item.id, file: item.file, url: URL.createObjectURL(item.file) })));
+      })
+      .catch(() => setToast("参考图恢复失败，请重新添加"))
+      .finally(() => { if (!cancelled) setReferencesRestored(true); });
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => {
+    // 仅在恢复完成后写入，避免首帧空数组覆盖已有的本地参考图。
+    if (!referencesRestored) return;
+    saveCachedReferences(files).catch(() => setToast("参考图保存失败，请减少图片大小"));
+  }, [files, referencesRestored]);
   useEffect(() => {
     const editor = richPromptRef.current;
     if (editor && editorPromptText(editor) !== prompt) renderPromptContent(editor, prompt, files);
@@ -398,7 +472,12 @@ export function CreatePage() {
   function addReferences(fileList) {
     // 添加参考图本地预览，最多保留四张。
     const accepted = Array.from(fileList).filter((file) => file.type.startsWith("image/")).slice(0, 4 - files.length);
-    setFiles((items) => [...items, ...accepted.map((file) => ({ id: crypto.randomUUID(), file, url: URL.createObjectURL(file) }))]);
+    if (!accepted.length) return;
+    const additions = accepted.map((file) => ({ id: crypto.randomUUID(), file, url: URL.createObjectURL(file) }));
+    const next = [...files, ...additions];
+    // 选择图片时立即持久化，而不是等待 React 副作用，避免刷新恰好发生在异步写入前。
+    saveCachedReferences(next).catch(() => setToast("参考图保存失败，请减少图片大小"));
+    setFiles(next);
   }
 
   function dropReferences(event) {
@@ -409,7 +488,11 @@ export function CreatePage() {
 
   function removeReference(id) {
     // 删除参考图并释放浏览器本地预览资源。
-    setFiles((items) => { const target = items.find((item) => item.id === id); if (target) URL.revokeObjectURL(target.url); return items.filter((item) => item.id !== id); });
+    const target = files.find((item) => item.id === id);
+    if (target?.url?.startsWith("blob:")) URL.revokeObjectURL(target.url);
+    const next = files.filter((item) => item.id !== id);
+    saveCachedReferences(next).catch(() => setToast("参考图保存失败，请稍后重试"));
+    setFiles(next);
   }
 
   async function saveThreadTitle() {
@@ -447,8 +530,9 @@ export function CreatePage() {
     form.append("title", generatedTitle);
     form.append("model", draft.model || "gpt-image-2"); form.append("size", normalizeSize(draft.size));
     // 生图服务只接受 auto、low、medium、high；界面“标准”对应 medium。
-    form.append("quality", normalizeQuality(draft.quality)); form.append("output_format", "png");
-    files.forEach(({ file, url }) => { if (file instanceof File) form.append("reference_images", file); else if (url) form.append("reference_image_urls", url); });
+    form.append("quality", normalizeQuality(draft.quality)); form.append("outputFormat", "png");
+    // multipart 表单字段使用 Java DTO 的属性名，避免 @ModelAttribute 无法绑定下划线字段。
+    files.forEach(({ file, url }) => { if (file instanceof File) form.append("referenceImages", file); else if (url) form.append("referenceImageUrls", url); });
     setStatus("queued"); setResults([]); setDraft({ ...draft, prompt, mode, additionalSystemPrompt }); setCredits(credits - spend);
     try {
       const response = await fetch("/gen_imgs/threads", { method: "POST", body: form });
@@ -466,14 +550,16 @@ export function CreatePage() {
     form.append("userId", currentUserId);
     form.append("model", draft.model || "gpt-image-2"); form.append("size", normalizeSize(draft.size));
     // 重试请求使用与首次生成相同的质量参数映射。
-    form.append("quality", normalizeQuality(draft.quality)); form.append("output_format", "png");
-    files.forEach(({ file, url }) => { if (file instanceof File) form.append("reference_images", file); else if (url) form.append("reference_image_urls", url); });
+    form.append("quality", normalizeQuality(draft.quality)); form.append("outputFormat", "png");
+    // 重试时优先提交已有的 OSS URL；字段名与 GenerateImageDTO 保持一致。
+    files.forEach(({ file, url }) => { if (file instanceof File) form.append("referenceImages", file); else if (url) form.append("referenceImageUrls", url); });
     setThreadId(id); setResults([]); setStatus("queued");
     try { const response = await fetch(`/gen_imgs/threads/${id}/attempts`, { method: "POST", body: form }); if (!response.ok) throw new Error("重试失败"); const thread = await response.json(); setTaskThreads((items) => items.map((item) => item.id === id ? mapThread(thread, item.title) : item)); } catch (error) { setStatus("failed"); setToast(error.message); }
   }
 
   function startNewCreation() {
     setThreadId(""); setWorkspaceThreadId(""); setWorkspaceView("tasks"); setPrompt("");
+    saveCachedReferences([]).catch(() => setToast("参考图清理失败，请稍后重试"));
     setFiles([]); setReferencesLocked(false); setResults([]); setStatus("idle");
     setTaskName(defaultThreadTitle(taskThreads)); setEditingTaskName(false);
     // 新建任务同时清空上一次从提示词构建页带回的标签栏内容。
@@ -548,6 +634,44 @@ export function CreatePage() {
     }
   }
 
+  // 选择历史 Attempt 时同步恢复创作参数、标签、参考图和结果。
+  function selectAttempt(attempt, selectedThread) {
+    const restoredReferences = (selectedThread.references || []).map((reference, index) => ({
+      id: `stored-ref-${index}`,
+      url: reference.url || reference.objectKey || reference,
+      file: {
+        name: reference.filename || `参考图 ${index + 1}`,
+        type: reference.mimeType || "image/*"
+      }
+    }));
+    setThreadId(selectedThread.id);
+    setAttemptId(attempt.id);
+    setWorkspaceThreadId(selectedThread.id);
+    setPrompt(attempt.prompt || "");
+    setDraft((current) => ({
+      ...current,
+      prompt: attempt.prompt || "",
+      tags: attempt.tags || [],
+      model: attempt.modelName || current.model,
+      size: attempt.size || current.size,
+      quality: attempt.quality || current.quality,
+      references: restoredReferences
+    }));
+    setFiles(restoredReferences);
+    setReferencesLocked(true);
+    setResults((attempt.imageUrls || []).map((url, index) => ({
+      id: `${attempt.id}-${index}`,
+      image: url,
+      title: `${mode} · ${index + 1}`,
+      version: "初稿",
+      attemptNumber: attempt.attemptNo || selectedThread.attempts.findIndex((item) => item.id === attempt.id) + 1
+    })));
+    setStatus(attempt.rawStatus === "succeeded" || (attempt.imageUrls || []).length
+      ? "done"
+      : attempt.rawStatus === "failed" ? "failed"
+        : attempt.rawStatus === "running" ? "working" : "queued");
+  }
+
   return <section className={`create-page ${workspaceOpen ? "has-workspace-rail" : ""} ${(threadId || workspaceThreadId) ? "has-thread" : ""}`} style={{ "--workspace-width": `${workspaceWidth}px` }} ref={canvasRef} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); }}>
     <div className="create-intro workspace-rail-controls"><button className={`workspace-dock-button ${workspaceOpen ? "is-open" : ""}`} type="button" aria-expanded={workspaceOpen} onClick={() => setWorkspaceOpen((open) => !open)}><span className="dock-glyph"><PanelRight size={15} /></span><span>工作区</span></button><div className="task-name-editor"><input className="task-name-inline" value={taskName} maxLength="40" readOnly={!editingTaskName} onChange={(event) => setTaskName(event.target.value)} onBlur={() => { if (editingTaskName) saveThreadTitle(); }} onKeyDown={(event) => { if (event.key === "Enter") { event.currentTarget.blur(); setEditingTaskName(false); } }} aria-label="任务名称" /><button type="button" className="task-name-edit" title={editingTaskName ? "保存任务名称" : "修改任务名称"} onMouseDown={(event) => event.preventDefault()} onClick={() => { if (editingTaskName) { saveThreadTitle(); setEditingTaskName(false); } else setEditingTaskName(true); }}>{editingTaskName ? <Check size={14} /> : <Pencil size={14} />}</button></div></div>
     <div className="studio-grid">
@@ -563,13 +687,22 @@ export function CreatePage() {
       </section>
       {/* 标签栏：独立于结果显示模块（深色画布）的浅色卡片，固定显示在画布上方。 */}
       <div className="canvas-column">
-        <div className="canvas-tag-panel">
-          <div className="canvas-tag-head"><span>标签栏</span><small>{draftTags.length ? `${draftTags.length} 个标签` : "暂无标签"}</small></div>
+        <div className={["canvas-tag-panel", tagsCollapsed && "is-collapsed"].filter(Boolean).join("  ")}>
+          <div className="canvas-tag-head">
+            <span>标签栏</span>
+            <div className="canvas-tag-actions">
+              <small>{draftTags.length ? draftTags.length + " 个标签" : "暂无标签"}</small>
+              <button type="button" className="canvas-tag-toggle" aria-expanded={!tagsCollapsed} aria-label={tagsCollapsed ? "展开标签栏" : "收起标签栏"} title={tagsCollapsed ? "展开标签栏" : "收起标签栏"} onClick={() => setTagsCollapsed((collapsed) => !collapsed)}><ChevronDown size={14} /></button>
+            </div>
+          </div>
           <div className="canvas-tag-bar">
             {tagChips.length
-              ? tagChips.map((segments, index) => <span className={`canvas-tag tone-${index % 4}`} key={index}>{segments.map((segment, part) => segment.type === "ref"
-                ? <span className="tag-ref-chip" key={part}>{segment.text}</span>
-                : <span key={part}>{segment.text}</span>)}</span>)
+              ? <>
+                {tagChips.slice(0, tagsCollapsed ? 3 : tagChips.length).map((segments, index) => <span className={`canvas-tag tone-${index % 4}`} key={index}>{segments.map((segment, part) => segment.type === "ref"
+                  ? <span className="tag-ref-chip" key={part}>{segment.text}</span>
+                  : <span key={part}>{segment.text}</span>)}</span>)}
+                {tagsCollapsed && tagChips.length > 3 && <span className="canvas-tag tone-more">+{tagChips.length - 3}</span>}
+              </>
               : <span className="canvas-tag-placeholder">在提示词构建页添加标签后，这里会展示对应内容</span>}
           </div>
         </div>
@@ -582,7 +715,27 @@ export function CreatePage() {
         </section>
       </div>
     </div>
-    {workspaceOpen && <UnifiedWorkspace view={workspaceView} onViewChange={setWorkspaceView} threads={taskThreads} thread={taskThreads.find((item) => item.id === workspaceThreadId) || taskThreads.find((item) => item.id === threadId) || taskThreads[0]} width={workspaceWidth} onResize={setWorkspaceWidth} onClose={() => setWorkspaceOpen(false)} onRetry={retryThread} onEditThread={(item) => setThreadEdit({ id: item.id, title: item.title })} onSelectThread={(item) => { setWorkspaceThreadId(item.id); setTaskName(item.title); setEditingTaskName(false); setWorkspaceView("results"); }} onSelectAttempt={(attempt, selectedThread) => { setThreadId(selectedThread.id); setWorkspaceThreadId(selectedThread.id); setPrompt(attempt.prompt || ""); setDraft({ ...draft, prompt: attempt.prompt || "", model: attempt.modelName || draft.model, size: attempt.size || draft.size, quality: attempt.quality || draft.quality }); setFiles((selectedThread.references || []).map((reference, index) => ({ id: `stored-ref-${index}`, url: reference.url || reference.objectKey || reference, file: { name: reference.filename || `参考图 ${index + 1}`, type: reference.mimeType || "image/*" } }))); setReferencesLocked(true); setResults((attempt.imageUrls || []).map((url, index) => ({ id: `${attempt.id}-${index}`, image: url, title: `${mode} · ${index + 1}`, version: "初稿", attemptNumber: attempt.attemptNo || selectedThread.attempts.findIndex((item) => item.id === attempt.id) + 1 }))); setStatus(attempt.rawStatus === "succeeded" || (attempt.imageUrls || []).length ? "done" : attempt.rawStatus === "failed" ? "failed" : attempt.rawStatus === "running" ? "working" : "queued"); }} />}
+    {workspaceOpen && <UnifiedWorkspace
+      view={workspaceView}
+      onViewChange={setWorkspaceView}
+      threads={taskThreads}
+      thread={taskThreads.find((item) => item.id === workspaceThreadId)
+        || taskThreads.find((item) => item.id === threadId)
+        || taskThreads[0]}
+      width={workspaceWidth}
+      onResize={setWorkspaceWidth}
+      onClose={() => setWorkspaceOpen(false)}
+      onRetry={retryThread}
+      onEditThread={(item) => setThreadEdit({ id: item.id, title: item.title })}
+      onSelectThread={(item) => {
+        setWorkspaceThreadId(item.id);
+        setThreadId(item.id);
+        setTaskName(item.title);
+        setEditingTaskName(false);
+        setWorkspaceView("results");
+      }}
+      onSelectAttempt={selectAttempt}
+    />}
     {threadEdit && <Modal title="修改任务名称" onClose={() => setThreadEdit(null)}><div className="template-form"><label>任务名称<input autoFocus maxLength="40" value={threadEdit.title} onChange={(event) => setThreadEdit({ ...threadEdit, title: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.closest("form")?.requestSubmit(); }} /></label><button type="button" className="primary-action" disabled={!threadEdit.title.trim()} onClick={async () => { try { const response = await fetch(`/gen_imgs/threads/${threadEdit.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: threadEdit.title.trim() }) }); if (!response.ok) throw new Error("任务名称修改失败"); setTaskThreads((items) => items.map((item) => item.id === threadEdit.id ? { ...item, title: threadEdit.title.trim() } : item)); if (workspaceThreadId === threadEdit.id) setTaskName(threadEdit.title.trim()); setThreadEdit(null); setToast("任务名称已更新"); } catch (error) { setToast(error.message); } }}>保存</button></div></Modal>}
     {promptFullscreen && <PromptFullscreen value={prompt} files={files} onChange={setPrompt} onClose={() => setPromptFullscreen(false)} />}
     {advancedOpen && <AdvancedPromptModal value={additionalSystemPrompt} basePrompt={GEN_IMGS_SYSTEM_PROMPT} onChange={setAdditionalSystemPrompt} onClose={() => setAdvancedOpen(false)} onSave={() => { setDraft({ ...draft, additionalSystemPrompt }); setAdvancedOpen(false); setToast("系统提示词追加内容已保存"); }} />}

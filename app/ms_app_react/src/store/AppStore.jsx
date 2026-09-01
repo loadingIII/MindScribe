@@ -3,6 +3,9 @@ import { starterLibrary, starterPrompts, starterWorks } from "../assets/mockData
 
 const StoreContext = createContext(null);
 const STORAGE_KEY = "mindscribe-web-demo-v1";
+const REFERENCE_DB_NAME = "mindscribe-reference-images";
+const REFERENCE_STORE_NAME = "images";
+const CACHED_STATE_PREFIX = "mindscribe-create-state:";
 
 function loadState() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
@@ -11,11 +14,65 @@ function loadState() {
 // 模块级缓存：页面组件因路由切换卸载时保留最近一次状态，重新挂载时恢复，避免跨页切换丢状态。
 const stateCache = {};
 
+/** 读取刷新前保存的轻量创作状态；文件列表由 IndexedDB 单独处理。 */
+function loadCachedValue(key, initial) {
+  if (key in stateCache) return stateCache[key];
+  if (key === "create:files") return typeof initial === "function" ? initial() : initial;
+  try {
+    const stored = localStorage.getItem(`${CACHED_STATE_PREFIX}${key}`);
+    if (stored !== null) return JSON.parse(stored);
+  } catch { /* 存储不可用时回退到默认值。 */ }
+  return typeof initial === "function" ? initial() : initial;
+}
+
 /** 用法与 useState 相同，但状态在卸载后会缓存在内存中，重挂载时恢复。 */
 export function useCachedState(key, initial) {
-  const [value, setValue] = useState(key in stateCache ? stateCache[key] : initial);
-  useEffect(() => { stateCache[key] = value; }, [key, value]);
+  const [value, setValue] = useState(() => loadCachedValue(key, initial));
+  useEffect(() => {
+    stateCache[key] = value;
+    // File/Blob 不写入 localStorage，参考图文件由 IndexedDB 持久化。
+    if (key === "create:files") return;
+    try { localStorage.setItem(`${CACHED_STATE_PREFIX}${key}`, JSON.stringify(value)); } catch { /* 忽略单个状态的持久化失败。 */ }
+  }, [key, value]);
   return [value, setValue];
+}
+
+/** 将本地参考图保存到 IndexedDB，刷新后仍可恢复文件和预览。 */
+function openReferenceDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(REFERENCE_DB_NAME, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(REFERENCE_STORE_NAME, { keyPath: "id" });
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/** 读取持久化的参考图记录。 */
+export async function loadCachedReferences() {
+  const database = await openReferenceDatabase();
+  return new Promise((resolve, reject) => {
+    const request = database.transaction(REFERENCE_STORE_NAME, "readonly").objectStore(REFERENCE_STORE_NAME).getAll();
+    request.onsuccess = () => { database.close(); resolve(request.result || []); };
+    request.onerror = () => { database.close(); reject(request.error); };
+  });
+}
+
+/** 用当前参考图替换 IndexedDB 中的持久化记录。 */
+export async function saveCachedReferences(items) {
+  const database = await openReferenceDatabase();
+  const transaction = database.transaction(REFERENCE_STORE_NAME, "readwrite");
+  const store = transaction.objectStore(REFERENCE_STORE_NAME);
+  store.clear();
+  items.forEach((item) => {
+    // 同时保存文件名和 MIME，兼容部分浏览器从 IndexedDB 取回 Blob 而非 File 的情况。
+    if (item.file instanceof File) {
+      store.put({ id: item.id, file: item.file, name: item.file.name, type: item.file.type });
+    }
+  });
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => { database.close(); resolve(); };
+    transaction.onerror = () => { database.close(); reject(transaction.error); };
+  });
 }
 
 export function AppStore({ children }) {
@@ -32,16 +89,24 @@ export function AppStore({ children }) {
     size: initialDraft.size === "1024×1024" && !initialDraft.quality ? "auto" : (initialDraft.size || "auto"),
     quality: initialDraft.quality || "auto",
     mode: initialDraft.mode || "文本生图",
-    // 参考图仅在内存中跨页共享，恢复持久化数据时一律置空。
-    references: []
+    // 已上传或历史任务的参考图 URL 可安全持久化；本地 File 在保存时会被剥离。
+    references: Array.isArray(initialDraft.references) ? initialDraft.references : []
   });
   const [credits, setCredits] = useState(saved.credits ?? 2180);
   const [settings, setSettings] = useState(saved.settings || { public: true, remix: true, revealPrompt: true, downloads: true });
   const [following, setFollowing] = useState(saved.following || ["yun"]);
   const [toast, setToast] = useState("");
 
-  // 参考图含 File 对象与 blob 地址，无法序列化，仅在内存中跨页共享；持久化时剥离以免存入损坏数据。
-  const persistableDraft = { ...draft, references: [] };
+  // 仅持久化可恢复的远程 URL 与展示元数据；本地 File/blob 地址不写入 localStorage。
+  const persistableReferences = (draft.references || [])
+    .filter((item) => item?.url && !String(item.url).startsWith("blob:"))
+    .map((item) => ({
+      id: item.id,
+      url: item.url,
+      name: item.file?.name || item.name || "参考图",
+      type: item.file?.type || item.type || "image/*"
+    }));
+  const persistableDraft = { ...draft, references: persistableReferences };
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify({ prompts, works, library, draft: persistableDraft, credits, settings, following })); }, [prompts, works, library, draft, credits, settings, following]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 2500); return () => clearTimeout(timer); }, [toast]);
 

@@ -2887,6 +2887,45 @@ body {
   font:10px var(--mono);
   letter-spacing:.02em;
 }
+.canvas-tag-actions {
+  display:flex;
+  align-items:center;
+  gap:6px;
+}
+.canvas-tag-toggle {
+  display:grid;
+  width:22px;
+  height:22px;
+  place-items:center;
+  padding:0;
+  border:0;
+  border-radius:5px;
+  background:transparent;
+  color:#7f8771;
+  cursor:pointer;
+  transition:background .18s ease, color .18s ease, transform .18s ease;
+}
+.canvas-tag-toggle:hover {
+  background:#eef0e5;
+  color:#4f5c35;
+}
+.canvas-tag-toggle:focus-visible {
+  outline:2px solid #aab96b;
+  outline-offset:2px;
+}
+.canvas-tag-panel.is-collapsed {
+  padding-top:10px;
+  padding-bottom:10px;
+}
+.canvas-tag-panel.is-collapsed .canvas-tag-bar {
+  flex-wrap:nowrap;
+  gap:6px;
+  margin-top:7px;
+  overflow:hidden;
+}
+.canvas-tag-panel.is-collapsed .canvas-tag-toggle {
+  transform:rotate(-90deg);
+}
 .canvas-tag-bar {
   position:relative;
   z-index:1;

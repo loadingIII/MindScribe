@@ -1,12 +1,12 @@
 const data={
-  '主体对象':{subs:{'角色':['角色','身份','数量'],'外观细节':['发型','服饰','面部表情','动作']},icon:'◌'},
-  '构图与画面结构':{subs:{'画面构图':['三分法','对称构图','引导线','对角线','中心构图'],'景别':['全景','远景','中景','半身','特写'],'视角':['平视','俯视','仰拍','鸟瞰','低角度']},icon:'▦'},
-  '光线与光影氛围':{subs:{'光源类型':['自然光','黄金时','黎明','月光','霓虹灯','烛光'],'光照强度':['柔和漫光','硬阴影','高对比度','低对比度'],'色彩色调':['冷色调','暖色调','高饱和','低饱和']},icon:'☼'},
-  '环境 & 背景':{subs:{'场景环境':['室内','森林','废墟','都市街道','星空宇宙'],'环境状态':['下雨','下雪','大雾','沙尘暴','清晨','午夜'],'背景处理':['复杂背景','虚化背景','纯色背景']},icon:'⌂'},
-  '艺术风格':{subs:{'美术流派':['印象派','赛博朋克','日式二次元','国风厚涂','水彩','油画'],'媒介载体':['胶片摄影','数字摄影','水墨画','钢笔速写','3D渲染'],'质感画风':['手绘笔触','平滑渲染','颗粒噪点']},icon:'✳'},
-  '氛围 & 特殊':{subs:{'氛围':['孤寂','浪漫','压迫感','治愈','史诗感','诡异','静谧','热烈'],'特殊':['畸形肢体','扭曲手部','模糊','水印','文字','低画质']},icon:'✦'}
+  '主体对象':{subs:{'主体信息':['主体类型','主体数量','主体关系'],'外观与行为':['外观特征','服饰配件','表情状态','动作姿态']},icon:'◌'},
+  '构图与画面结构':{subs:{'画面布局':['构图方式','主体位置','画面重心','留白空间'],'镜头语言':['景别范围','拍摄视角','镜头焦段']},icon:'▦'},
+  '光线与光影氛围':{subs:{'光线设置':['光源类型','光线方向','光线质感','光影对比'],'色彩氛围':['整体色调','色彩倾向','色彩饱和度']},icon:'☼'},
+  '环境与背景':{subs:{'场景设定':['场景地点','空间类型','时代背景'],'环境状态':['天气状况','时间氛围','环境动态'],'背景处理':['背景内容','景深效果','背景色彩']},icon:'⌂'},
+  '艺术风格':{subs:{'风格方向':['整体风格','参考流派','时代气质'],'表现媒介':['媒介形式','渲染方式','笔触质感']},icon:'✳'},
+  '氛围与效果':{subs:{'情绪氛围':['情绪基调','氛围强度','叙事气质'],'画面约束':['负面元素','细节要求','输出质量']},icon:'✦'}
 };
-let active=Object.keys(data)[0],sub=Object.keys(data[active].subs)[0];let selected=[{key:'角色',value:'年轻女性',committed:true},{key:'面部表情',value:'神情放松，眼神看向镜头',committed:true}];
+let active=Object.keys(data)[0],sub=Object.keys(data[active].subs)[0];let selected=[{key:'主体类型',value:'年轻女性',committed:true},{key:'表情状态',value:'神情放松，眼神看向镜头',committed:true}];
 const $=id=>document.getElementById(id);const categories=$('categoryList'),tabs=$('subCategoryTabs'),grid=$('tagGrid'),chips=$('selectedTags'),text=$('promptText');
 function renderCategories(){categories.innerHTML=Object.keys(data).map((name,i)=>`<button class="category-item ${name===active?'active':''}" data-cat="${name}"><span>${data[name].icon}&nbsp; ${name}</span><span class="category-index">0${i+1}</span></button>`).join('');categories.querySelectorAll('[data-cat]').forEach(b=>b.onclick=()=>{active=b.dataset.cat;sub=Object.keys(data[active].subs)[0];render()})}
 function addTag(key){if(!selected.some(x=>x.key===key)){selected.push({key,value:'',committed:false});render();setTimeout(()=>document.querySelector(`[data-edit-key="${key}"]`)?.focus(),0)}}

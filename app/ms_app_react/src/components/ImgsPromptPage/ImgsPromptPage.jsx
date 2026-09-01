@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Copy, Save, Sparkles, X } from "lucide-react";
+import { Save, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useCachedState, useStore } from "../../store/AppStore";
 import { ImagePreview } from "../../features/legacy/LegacyApp";
@@ -10,47 +10,44 @@ const GROUPS = {
   "主体对象": {
     icon: "◌",
     groups: {
-      "角色": ["角色", "身份", "数量"],
-      "外观细节": ["发型", "服饰", "面部表情", "动作"]
+      "主体信息": ["主体类型", "主体数量", "主体关系"],
+      "外观与行为": ["外观特征", "服饰配件", "表情状态", "动作姿态"]
     }
   },
   "构图与画面结构": {
     icon: "▦",
     groups: {
-      "画面构图": ["三分法", "对称构图", "引导线", "对角线", "中心构图"],
-      "景别": ["全景", "远景", "中景", "半身", "特写"],
-      "视角": ["平视", "俯视", "仰拍", "鸟瞰", "低角度"]
+      "画面布局": ["构图方式", "主体位置", "画面重心", "留白空间"],
+      "镜头语言": ["景别范围", "拍摄视角", "镜头焦段"]
     }
   },
   "光线与光影氛围": {
     icon: "☼",
     groups: {
-      "光源类型": ["自然光", "黄金时", "黎明", "月光", "霓虹灯", "烛光"],
-      "光照强度": ["柔和漫光", "硬阴影", "高对比度", "低对比度"],
-      "色彩色调": ["冷色调", "暖色调", "高饱和", "低饱和"]
+      "光线设置": ["光源类型", "光线方向", "光线质感", "光影对比"],
+      "色彩氛围": ["整体色调", "色彩倾向", "色彩饱和度"]
     }
   },
-  "环境 & 背景": {
+  "环境与背景": {
     icon: "⌂",
     groups: {
-      "场景环境": ["室内", "森林", "废墟", "都市街道", "星空宇宙"],
-      "环境状态": ["下雨", "下雪", "大雾", "沙尘暴", "清晨", "午夜"],
-      "背景处理": ["复杂背景", "虚化背景", "纯色背景"]
+      "场景设定": ["场景地点", "空间类型", "时代背景"],
+      "环境状态": ["天气状况", "时间氛围", "环境动态"],
+      "背景处理": ["背景内容", "景深效果", "背景色彩"]
     }
   },
   "艺术风格": {
     icon: "✳",
     groups: {
-      "美术流派": ["印象派", "赛博朋克", "日式二次元", "国风厚涂", "水彩", "油画"],
-      "媒介载体": ["胶片摄影", "数字摄影", "水墨画", "钢笔速写", "3D渲染"],
-      "质感画风": ["手绘笔触", "平滑渲染", "颗粒噪点"]
+      "风格方向": ["整体风格", "参考流派", "时代气质"],
+      "表现媒介": ["媒介形式", "渲染方式", "笔触质感"]
     }
   },
-  "氛围 & 特殊": {
+  "氛围与效果": {
     icon: "✦",
     groups: {
-      "氛围": ["孤寂", "浪漫", "压迫感", "治愈", "史诗感", "诡异", "静谧", "热烈"],
-      "特殊": ["畸形肢体", "扭曲手部", "模糊", "水印", "文字", "低画质"]
+      "情绪氛围": ["情绪基调", "氛围强度", "叙事气质"],
+      "画面约束": ["负面元素", "细节要求", "输出质量"]
     }
   },
   "自定义标签": {
@@ -111,10 +108,10 @@ function escapeHtml(text) {
     .replace(/'/g, "&#39;");
 }
 
-/** 将纯文本渲染为芯片 innerHTML：[序号:图片名] 渲染为原子高亮胶囊（仅显示图片名），换行转为 <br>。 */
+/** 将纯文本渲染为芯片 innerHTML，兼容 [图片名] 与 [序号:图片名] 两种参考图标记。 */
 function renderChipHtml(text) {
   return escapeHtml(text)
-    .replace(/\[(\d+):([^\]]+)\]/g, '<span class="chip-ref-mark" contenteditable="false" data-ref="[$1:$2]">$2</span>')
+    .replace(/\[(?:(\d+):)?([^\]]+)\]/g, '<span class="chip-ref-mark" contenteditable="false" data-ref="$&">$2</span>')
     .replace(/\n/g, "<br>");
 }
 
@@ -137,9 +134,9 @@ function serializeChipContent(element) {
   return text;
 }
 
-/** 存储文本 → 显示文本：[序号:图片名] 在界面上只显示图片名。 */
+/** 存储文本 → 显示文本：参考图标记在界面上只显示图片名。 */
 function valueToDisplayText(value) {
-  return value.replace(/\[\d+:([^\]]+)\]/g, "$1");
+  return value.replace(/\[(?:\d+:)?([^\]]+)\]/g, "$1");
 }
 
 /** 计算两个字符串的公共前缀长度，用于光标位置映射。 */
@@ -288,7 +285,7 @@ export default function ImgsPromptPage() {
   const references = draft.references || [];
   const initialPrompt = draft.prompt || "";
   const [active, setActive] = useState("主体对象");
-  const [sub, setSub] = useState("角色");
+  const [sub, setSub] = useState("主体信息");
   const [chips, setChips] = useState(() => {
     const parsed = parseChips(initialPrompt);
     const textChips = parsed.filter((chip) => chip.type === "text");
@@ -316,8 +313,11 @@ export default function ImgsPromptPage() {
   const [referenceRatio, setReferenceRatio] = useCachedState("prompt-builder:referenceRatio", 0.32);
   const [previewItem, setPreviewItem] = useState(null);
   const savedSnapshot = useRef(initialPrompt);
-  const subs = Object.keys(GROUPS[active].groups);
-  const tags = GROUPS[active].groups[sub];
+  // 分类文案更新后，旧的子分类状态可能仍在首帧渲染中；使用当前分类的首个子分类兜底，避免白屏。
+  const activeGroup = GROUPS[active] || GROUPS["主体对象"];
+  const subs = Object.keys(activeGroup.groups);
+  const currentSub = activeGroup.groups[sub] ? sub : subs[0];
+  const tags = activeGroup.groups[currentSub] || [];
   const mentionItems = useMemo(
     () => references.filter((item) =>
       (item.file?.name || item.name || "")
@@ -328,8 +328,8 @@ export default function ImgsPromptPage() {
   );
 
   useEffect(() => {
-    if (!subs.includes(sub)) setSub(subs[0]);
-  }, [active, subs]);
+    if (sub !== currentSub) setSub(currentSub);
+  }, [active, sub, currentSub, subs]);
 
   useEffect(() => {
     const handler = () => saveDraft();
@@ -554,8 +554,6 @@ export default function ImgsPromptPage() {
             <div><span>提示词编辑</span><small>{chips.filter((chip) => chip.type === "field").length} 个标签已添加</small></div>
             <div className="prompt-actions">
               <button type="button" className="optimize-prompt-button" onClick={() => setToast("LLM 优化功能即将上线")}><Sparkles size={14} />优化提示词</button>
-              <button type="button" onClick={() => { navigator.clipboard?.writeText(buildPrompt()); setToast("提示词已复制"); }} title="复制提示词"><Copy size={15} /></button>
-              <button type="button" onClick={() => { setChips([{ id: "text-composer", type: "text", value: "" }]); setMention(null); }} title="清空提示词"><X size={16} /></button>
             </div>
           </div>
           <div className="editor-wrap">
