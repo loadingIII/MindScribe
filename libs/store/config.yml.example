@@ -1,9 +1,0 @@
-oss:
-  # OSS 服务端点，例如：https://oss-cn-hangzhou.aliyuncs.com
-  endpoint: https://oss-cn-hangzhou.aliyuncs.com
-  # 部署环境建议通过环境变量提供访问密钥。
-  access_key_id: ""
-  access_key_secret: ""
-  bucket_name: ""
-  region: cn-hangzhou
-  signature_expires: 3600
