@@ -4,6 +4,10 @@ spring:
     import: optional:file:.env[.properties]
   application:
     name: ms-backend-java
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 20MB
   datasource:
     url: ${MYSQL_URL:jdbc:mysql://127.0.0.1:3306/mindscribe?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
     username: ${MYSQL_USERNAME:root}
