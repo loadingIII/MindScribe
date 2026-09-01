@@ -24,6 +24,11 @@ public class GenImgsController {
     @PostMapping(value = "/threads", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ThreadVO> createThread(@RequestParam String userId, @ModelAttribute GenerateImageDTO request) throws IOException, InterruptedException {
         log.info("创建图片线程，userId={}", userId);
+        //TODO 打印出提示词
+        System.out.println("#############################");
+        System.out.println("提示词JSON为" + request.getPrompt());
+        System.out.println("#############################");
+
         return ResponseEntity.accepted().body(service.createThread(userId, request));
     }
 

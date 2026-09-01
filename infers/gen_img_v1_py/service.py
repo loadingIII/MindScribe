@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import threading
 import uuid
@@ -13,6 +14,9 @@ from .config import config as app_config
 from .open_ai import async_generate_img, get_async_client
 from .prompt_mapping import build_prompt, build_prompt_from_payload
 from .schemas import GenerateOptions, TaskResponse, TaskStatus
+
+# 模块级日志器：用于输出任务执行过程中的关键信息（如最终拼接的提示词）。
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -83,6 +87,9 @@ class ImageGenerationService:
         try:
             # prompt 可能是前端组装的结构化提示词 JSON；解析失败时按普通文本处理。
             final_prompt = build_prompt_from_payload(prompt, prompt)
+            # 输出最终拼接结果，便于核对参照图清单与标记改写是否符合预期。
+            # 注意：提示词可能包含用户创作内容，生产环境如需隐私可降级为 logger.debug。
+            logger.info("任务 %s 最终提示词：\n%s", task_id, final_prompt)
             image_urls = await async_generate_img(
                 self._create_openai_client(),
                 final_prompt,
