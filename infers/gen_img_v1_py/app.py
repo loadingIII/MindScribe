@@ -19,7 +19,9 @@ image_generation_service = ImageGenerationService()
 @app.post("/generate", response_model=CreateTaskResponse, status_code=status.HTTP_202_ACCEPTED)
 async def create_generation_task(
     background_tasks: BackgroundTasks,
-    prompt: str = Form(..., min_length=1, max_length=5000),
+    # prompt 为前端组装的结构化提示词 JSON（system_prompt/user_prompt/tags_prompt），
+    # 也兼容旧的纯文本提示词；JSON 含系统提示词与标签，放宽长度上限。
+    prompt: str = Form(..., min_length=1, max_length=10000),
     reference_image_urls: list[str] = Form(...),
     model: str | None = Form(None),
     size: str | None = Form(None),

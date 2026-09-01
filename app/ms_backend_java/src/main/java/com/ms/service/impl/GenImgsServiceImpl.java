@@ -197,7 +197,8 @@ public class GenImgsServiceImpl implements GenImgsService {
 
     private ThreadEntity toThread(String id, String userId, GenerateImageDTO request, List<String> referenceUrls) throws IOException {
         ThreadEntity thread = new ThreadEntity(); thread.setId(id); thread.setUserId(userId);
-        thread.setTitle(request.getTitle() == null || request.getTitle().isBlank() ? request.getPrompt() : request.getTitle());
+        // 默认任务名由前端生成；未提供时统一使用 "Untitled" 占位。
+        thread.setTitle(request.getTitle() == null || request.getTitle().isBlank() ? "Untitled" : request.getTitle());
         List<Map<String, Object>> references = new ArrayList<>();
         List<MultipartFile> files = request.getReferenceImages() == null ? List.of() : request.getReferenceImages();
         for (int i = 0; i < (referenceUrls == null ? 0 : referenceUrls.size()); i++) {
@@ -213,6 +214,7 @@ public class GenImgsServiceImpl implements GenImgsService {
     private AttemptEntity toAttempt(AttemptVO source, GenerateImageDTO request, String threadId, int number) {
         AttemptEntity attempt = new AttemptEntity(); attempt.setId(source.attemptId()); attempt.setThreadId(threadId);
         attempt.setAttemptNo(number); attempt.setStatus(source.status()); attempt.setModelName(request.getModel());
+        // prompt 字段存完整的结构化提示词 JSON，保留系统提示词与标签，便于后续按原始指令复现。
         attempt.setPrompt(request.getPrompt());
         attempt.setSize(request.getSize()); attempt.setQuality(request.getQuality()); attempt.setOutputFormat(request.getOutputFormat());
         attempt.setRequestedCount(request.getN() == null ? 1 : request.getN()); attempt.setResults("[]");

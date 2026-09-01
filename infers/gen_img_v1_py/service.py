@@ -11,7 +11,7 @@ from typing import Mapping
 
 from .config import config as app_config
 from .open_ai import async_generate_img, get_async_client
-from .prompt_mapping import build_prompt
+from .prompt_mapping import build_prompt, build_prompt_from_payload
 from .schemas import GenerateOptions, TaskResponse, TaskStatus
 
 
@@ -81,9 +81,11 @@ class ImageGenerationService:
         """执行上传参考图、生成图片和上传结果的完整异步任务流程。"""
         self._set_running(task_id)
         try:
+            # prompt 可能是前端组装的结构化提示词 JSON；解析失败时按普通文本处理。
+            final_prompt = build_prompt_from_payload(prompt, prompt)
             image_urls = await async_generate_img(
                 self._create_openai_client(),
-                build_prompt(prompt),
+                final_prompt,
                 model=options.model,
                 n=options.n,
                 size=options.size,

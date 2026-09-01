@@ -10,6 +10,19 @@ import {
   WandSparkles, X, Zap, PanelRight, RotateCw
 } from "lucide-react";
 
+// Attempt.prompt 现在存的是结构化提示词 JSON；展示与回填时只取其中的 user_prompt 可读文本。
+function readablePrompt(value) {
+  const text = String(value || "");
+  try {
+    const data = JSON.parse(text);
+    if (data && typeof data === "object" && typeof data.user_prompt === "string" && data.user_prompt.trim()) {
+      return data.user_prompt;
+    }
+  } catch { /* 非 JSON 内容按原文返回，兼容旧数据。 */ }
+  return text;
+}
+
+// 任务线程与尝试记录的统一视图映射。
 function mapThread(thread, title) {
   const references = typeof thread.referenceImages === "string" ? (() => { try { return JSON.parse(thread.referenceImages); } catch { return []; } })() : (thread.referenceImages || []);
   const sourceAttempts = [...(thread.attempts || [])].sort((a, b) => (a.attemptNo ?? a.attempt_no ?? 0) - (b.attemptNo ?? b.attempt_no ?? 0));
@@ -23,7 +36,7 @@ function mapThread(thread, title) {
       taskId: item.taskId || item.task_id || item.externalTaskId,
       imageUrls,
       modelName: item.modelName,
-      prompt: item.prompt || "",
+      prompt: readablePrompt(item.prompt),
       size: item.size,
       quality: item.quality,
       error: item.error || "",
@@ -111,7 +124,7 @@ function downloadResultImage(url, filename) {
 }
 import { image } from "../../assets/mockData";
 import { useCachedState, useStore } from "../../store/AppStore";
-import { GEN_IMGS_SYSTEM_PROMPT } from "../../utils/prompts/gen_imgs_prompts";
+import { buildGenImgsPrompt, GEN_IMGS_SYSTEM_PROMPT } from "../../utils/prompts/gen_imgs_prompts";
 import SelectField from "../../components/SelectField";
 
 // 当前登录用户 ID 由部署环境注入，不能把数据库 UUID 写死在前端。
@@ -399,7 +412,10 @@ export function CreatePage() {
     if (credits < spend) { setToast("算力不足，请前往个人中心查看权益"); return; }
     const generatedTitle = threadId ? taskName : defaultThreadTitle(taskThreads);
     if (!threadId) setTaskName(generatedTitle);
-    const form = new FormData(); form.append("prompt", prompt.trim()); form.append("n", String(count));
+    const form = new FormData();
+    // prompt 字段现在存放结构化提示词 JSON（system_prompt/user_prompt/tags_prompt），由后端解析。
+    form.append("prompt", JSON.stringify(buildGenImgsPrompt(prompt.trim(), draftTags, additionalSystemPrompt)));
+    form.append("n", String(count));
     form.append("userId", currentUserId);
     form.append("title", generatedTitle);
     form.append("model", draft.model || "gpt-image-2"); form.append("size", normalizeSize(draft.size));
@@ -416,7 +432,10 @@ export function CreatePage() {
 
   async function retryThread(id) {
     if (!currentUserId) { setToast("请先登录"); return; }
-    const form = new FormData(); form.append("prompt", prompt.trim()); form.append("n", String(count));
+    const form = new FormData();
+    // prompt 字段现在存放结构化提示词 JSON（system_prompt/user_prompt/tags_prompt），由后端解析。
+    form.append("prompt", JSON.stringify(buildGenImgsPrompt(prompt.trim(), draftTags, additionalSystemPrompt)));
+    form.append("n", String(count));
     form.append("userId", currentUserId);
     form.append("model", draft.model || "gpt-image-2"); form.append("size", normalizeSize(draft.size));
     // 重试请求使用与首次生成相同的质量参数映射。
