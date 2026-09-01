@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prompt Atelier / 提示词工作台</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#"><span class="brand-mark">M</span><span>Prompt Atelier</span></a>
+        <nav class="top-nav" aria-label="当前模块"><a class="active" href="#builder">构建提示词</a></nav>
+        <div class="top-actions"><button class="icon-button" title="设置" aria-label="设置">⌘</button><button class="avatar" title="个人资料" aria-label="个人资料">L</button></div>
+      </header>
+
+      <main id="builder" class="workspace">
+        <section class="builder-grid" style="grid-template-columns:minmax(390px,46fr) 10px minmax(360px,54fr)">
+          <div class="left-builder">
+          <aside class="category-panel" aria-label="提示词类别">
+            <div class="panel-heading"><span>提示词结构</span><span class="mono">01 — 06</span></div>
+            <div id="categoryList" class="category-list"></div>
+          </aside>
+
+          <section class="tag-panel">
+            <div class="panel-heading"><span id="activeCategoryLabel">主体对象</span><span class="panel-hint">点击标签加入画面</span></div>
+            <div id="subCategoryTabs" class="sub-tabs"></div>
+            <div id="tagGrid" class="tag-grid"></div>
+            <div class="custom-tag"><span class="plus">＋</span><input id="customInput" placeholder="输入自定义描述，按 Enter 添加" /><button id="addCustom" class="text-button">添加</button></div>
+          </section>
+          </div>
+
+          <div class="resize-handle" id="resizeHandle" role="separator" aria-label="调整左右面板宽度" tabindex="0"><span></span></div>
+
+          <section class="prompt-section">
+            <div class="section-head"><div><span class="section-kicker">YOUR CANVAS</span><h2>提示词编辑</h2></div><div class="section-actions"><button id="optimize" class="optimize-button"><span>✦</span> LLM 优化提示词</button><button id="clearAll" class="ghost-button">清空</button><button id="copyPrompt" class="ghost-button">复制全部</button></div></div>
+            <div id="selectedTags" class="selected-tags"></div>
+            <textarea id="promptText" class="prompt-text" spellcheck="false" placeholder="你的提示词会出现在这里，也可以直接编辑…"></textarea>
+            <div class="prompt-footer"><span class="save-state"><span class="save-dot"></span><span id="saveState">已自动保存</span></span></div>
+          </section>
+        </section>
+
+      </main>
+      <footer class="footer"><span>Prompt Atelier <small>提示词构建工作台</small></span><span class="footer-status"><i></i> 工作区运行正常</span></footer>
+    </div>
+    <div id="toast" class="toast" role="status"></div>
+    <script src="app.js"></script>
+    <script src="resize.js"></script>
+  </body>
+</html>
