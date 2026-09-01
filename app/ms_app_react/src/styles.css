@@ -2851,6 +2851,91 @@ body {
 .canvas-label span:first-child {
   color:#dbe879;
 }
+/* 画布纵向列：标签栏（独立模块）在上方，深色结果画布填满剩余高度。 */
+.canvas-column {
+  display:flex;
+  flex-direction:column;
+  align-self:stretch;
+  min-height:0;
+}
+.canvas-column .creation-canvas {
+  height:auto;
+  flex:1 1 auto;
+}
+/* 标签栏模块：独立于深色画布的浅色卡片，固定显示在画布上方，有无标签都占位。 */
+.canvas-tag-panel {
+  position:relative;
+  z-index:1;
+  flex:0 0 auto;
+  margin:0 0 14px;
+  padding:12px 16px 13px;
+  border-radius:18px;
+  background:#fbfaf3;
+  box-shadow:inset 0 0 0 1px rgba(43,48,37,.08), 0 10px 24px rgba(48,55,43,.06);
+}
+.canvas-tag-head {
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  color:#5f6555;
+  font-size:11px;
+  font-weight:600;
+  letter-spacing:.06em;
+}
+.canvas-tag-head small {
+  color:#a2a798;
+  font:10px var(--mono);
+  letter-spacing:.02em;
+}
+.canvas-tag-bar {
+  position:relative;
+  z-index:1;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:10px;
+}
+.canvas-tag-placeholder {
+  color:#a2a798;
+  font-size:11px;
+  letter-spacing:.02em;
+}
+.canvas-tag {
+  max-width:100%;
+  padding:4px 10px;
+  border-radius:999px;
+  font-size:11px;
+  line-height:1.5;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+/* 浅色卡片上的四组彩色标签轮换配色，与提示词构建页的芯片观感呼应。 */
+.canvas-tag.tone-0 {
+  color:#55661a;
+  background:#eef3c8;
+  box-shadow:inset 0 0 0 1px rgba(139,158,52,.28);
+}
+.canvas-tag.tone-1 {
+  color:#2e6b57;
+  background:#def0e7;
+  box-shadow:inset 0 0 0 1px rgba(94,178,148,.3);
+}
+.canvas-tag.tone-2 {
+  color:#8a671c;
+  background:#f8ecd1;
+  box-shadow:inset 0 0 0 1px rgba(214,166,74,.3);
+}
+.canvas-tag.tone-3 {
+  color:#6b4f95;
+  background:#ede4f8;
+  box-shadow:inset 0 0 0 1px rgba(152,116,200,.3);
+}
+.canvas-tag.tone-more {
+  color:#8a8f80;
+  background:#eef0e5;
+  box-shadow:none;
+}
 .canvas-empty {
   position:relative;
   z-index:1;
@@ -4749,28 +4834,28 @@ body {
   flex:none;
   align-items:center;
   gap:7px;
-  /* 位于顶栏大标题右侧，仅保留水平外边距与标题保持间距。 */
+  /* 位于顶栏大标题右侧：深墨绿实心胶囊与右侧画布呼应，避免浅色渐变显得灰脏。 */
   margin:6px 0 0 28px;
-  padding:10px 18px;
-  color:var(--ink);
-  border:1px solid rgba(109,126,35,.32);
+  padding:10px 20px;
+  color:#f2f5e6;
+  border:0;
   border-radius:999px;
-  background:linear-gradient(135deg,#f2f6d4,#e3ebad);
-  box-shadow:0 5px 14px rgba(91,105,35,.14);
+  background:linear-gradient(135deg,#414b35,#2f3826);
+  box-shadow:0 6px 16px rgba(47,56,38,.24);
   font-size:12px;
   font-weight:600;
-  letter-spacing:.02em;
+  letter-spacing:.04em;
   cursor:pointer;
   transition:transform .2s,box-shadow .2s,background .2s;
 }
 .new-creation-button:hover {
   transform:translateY(-1px);
-  background:#dce78d;
-  box-shadow:0 8px 18px rgba(91,105,35,.2);
+  background:linear-gradient(135deg,#49543b,#354029);
+  box-shadow:0 9px 20px rgba(47,56,38,.3);
 }
 .new-creation-button:active {
   transform:translateY(0);
-  box-shadow:0 4px 10px rgba(91,105,35,.16);
+  box-shadow:0 4px 10px rgba(47,56,38,.24);
 }
 .task-name-edit {
   display:grid;

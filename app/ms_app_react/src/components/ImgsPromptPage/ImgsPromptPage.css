@@ -32,17 +32,114 @@ color:#91a72c}
   color:#272b24;
 font-weight:700}
 .imgs-prompt-layout{
-  display:grid;
-  grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);
+  display:flex;
+  align-items:stretch;
   min-height:calc(100vh - 165px);
   border:1px solid #dedfd5;
   border-radius:22px;
   overflow:hidden;
   background:#fffdf8;
 box-shadow:0 16px 40px rgba(52,57,45,.06)}
+/* 左列：提示词结构 + 参考图模块，宽度由竖向分隔条拖拽调节。 */
+.prompt-left-pane{
+  display:flex;
+  flex-direction:column;
+  flex:0 0 auto;
+  min-width:380px;
+min-height:0}
+.pane-divider{
+  position:relative;
+  flex:0 0 10px;
+  z-index:2;
+  background:transparent;
+  touch-action:none;
+transition:background .2s}
+.pane-divider.vertical{
+  cursor:col-resize;
+flex-basis:10px}
+.pane-divider.horizontal{
+  cursor:row-resize;
+flex-basis:10px}
+.pane-divider::after{
+  content:"";
+  position:absolute;
+  background:#e4e5dc;
+transition:background .2s}
+.pane-divider.vertical::after{
+  top:0;
+  bottom:0;
+  left:4px;
+width:2px}
+.pane-divider.horizontal::after{
+  left:0;
+  right:0;
+  top:4px;
+height:2px}
+.pane-divider:hover::after,.pane-divider.is-active::after{
+background:#c3cf8e}
+/* 参考图模块：与创作页参考图同步，高度由水平分隔条拖拽调节。 */
+.reference-workbench{
+  display:flex;
+  flex-direction:column;
+  flex:0 0 auto;
+  min-height:170px;
+  overflow:hidden;
+border-top:1px solid #dedfd5}
+.reference-workbench-head{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  padding:14px 26px 10px}
+.reference-workbench-head span{
+  font:600 14px Georgia,serif;
+color:#3c4136}
+.reference-workbench-head small{
+  color:#92978c;
+font-size:10px}
+.reference-workbench-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(120px,1fr));
+  gap:10px;
+  align-content:start;
+  flex:1 1 auto;
+  min-height:0;
+  overflow-y:auto;
+  padding:4px 26px 18px}
+.reference-thumb{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  padding:0;
+  border:1px solid #e4e5dc;
+  border-radius:12px;
+  background:#fff;
+  overflow:hidden;
+  text-align:left;
+  cursor:zoom-in;
+transition:box-shadow .2s}
+.reference-thumb:hover{
+box-shadow:0 8px 18px rgba(52,57,45,.12)}
+.reference-thumb img{
+  display:block;
+  width:100%;
+  aspect-ratio:1;
+  object-fit:cover}
+.reference-thumb span{
+  padding:0 10px 8px;
+  color:#777d71;
+  font-size:10px;
+  white-space:nowrap;
+  overflow:hidden;
+text-overflow:ellipsis}
+.reference-empty{
+  margin:0;
+  padding:8px 2px;
+  color:#92978c;
+font-size:11px}
 .tag-workbench{
   min-width:0;
-border-right:1px solid #dedfd5}
+  min-height:280px;
+flex:1 1 auto}
 .workbench-heading,.prompt-heading{
   display:flex;
   align-items:flex-end;
@@ -173,7 +270,8 @@ font-weight:700}
 color:#6b7c1b}
 .prompt-workbench{
   display:flex;
-  min-width:0;
+  min-width:360px;
+  flex:1 1 auto;
 flex-direction:column}
 .prompt-actions{
   display:flex;
@@ -289,8 +387,13 @@ font:9px 'DM Mono',monospace}
   background:transparent;
   text-align:left;
 font-size:11px}
-.prompt-mention-menu button:hover{
+.prompt-mention-menu button:hover,.prompt-mention-menu button.active{
 background:#eef1dc}
+.prompt-mention-menu .mention-empty{
+  margin:0;
+  padding:6px;
+  color:#92978c;
+font-size:10px}
 .prompt-mention-menu img{
   width:28px;
   height:28px;

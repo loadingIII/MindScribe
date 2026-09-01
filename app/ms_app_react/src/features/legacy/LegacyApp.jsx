@@ -36,6 +36,24 @@ function mapThread(thread, title) {
   return { id: thread.threadId || thread.id, title: title || thread.title || thread.prompt || "未命名创作", prompt: thread.prompt || "", status: attempts.at(-1)?.status || statusText(thread.status), createdAt: thread.createdAt || "刚刚", thumbnail: references[0]?.url || references[0]?.objectKey || references[0], references, attempts };
 }
 
+// 将提示词构建页带回的标签压缩为标签栏内容：总长限制在 20 字左右，被截断的标签以 ... 结尾。
+function buildTagChips(tags) {
+  const list = [];
+  let used = 0;
+  for (const tag of tags) {
+    const text = tag.value ? `${tag.key}：${tag.value}` : tag.key;
+    if (used + text.length <= 20) {
+      list.push(text);
+      used += text.length;
+      continue;
+    }
+    const remain = 20 - used;
+    if (remain >= 2) list.push(`${text.slice(0, remain)}...`);
+    break;
+  }
+  return list;
+}
+
 function statusText(status) {
   return { pending: "待生成", running: "生成中", succeeded: "已生成", failed: "失败" }[status] || "待生成";
 }
@@ -92,7 +110,7 @@ function downloadResultImage(url, filename) {
   triggerDownload(url, filename);
 }
 import { image } from "../../assets/mockData";
-import { useStore } from "../../store/AppStore";
+import { useCachedState, useStore } from "../../store/AppStore";
 import { GEN_IMGS_SYSTEM_PROMPT } from "../../utils/prompts/gen_imgs_prompts";
 import SelectField from "../../components/SelectField";
 
@@ -214,13 +232,15 @@ export function CreatePage() {
   const { draft, setDraft, credits, setCredits, addLibraryWork, setToast } = useStore();
   const navigate = useNavigate();
   const mode = "创作";
+  // 提示词以全局草稿为唯一数据源：输入实时写回 draft，跳转提示词构建页时内容保持一致。
   const [prompt, setPrompt] = useState(draft.prompt || "");
-  const [files, setFiles] = useState([]);
-  const [referencesLocked, setReferencesLocked] = useState(false);
+  // 任务相关状态通过内存缓存跨页保留，避免在创作页与提示词构建页之间切换时丢失。
+  const [files, setFiles] = useCachedState("create:files", []);
+  const [referencesLocked, setReferencesLocked] = useCachedState("create:referencesLocked", false);
   const count = 1;
-  const [status, setStatus] = useState("idle");
-  const [threadId, setThreadId] = useState("");
-  const [results, setResults] = useState([]);
+  const [status, setStatus] = useCachedState("create:status", "idle");
+  const [threadId, setThreadId] = useCachedState("create:threadId", "");
+  const [results, setResults] = useCachedState("create:results", []);
   const [previewResult, setPreviewResult] = useState(null);
   const [promptFullscreen, setPromptFullscreen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -234,9 +254,12 @@ export function CreatePage() {
   const [workspaceThreadId, setWorkspaceThreadId] = useState("");
   const [taskThreads, setTaskThreads] = useState([]);
   const [currentUserId, setCurrentUserId] = useState(CONFIGURED_USER_ID);
-  const [taskName, setTaskName] = useState(() => defaultThreadTitle());
+  const [taskName, setTaskName] = useCachedState("create:taskName", () => defaultThreadTitle());
   const [editingTaskName, setEditingTaskName] = useState(false);
   const [threadEdit, setThreadEdit] = useState(null);
+  // 提示词构建页带回的结构化标签，用于画布顶部的"标签栏"展示。
+  const draftTags = Array.isArray(draft.tags) ? draft.tags : [];
+  const tagChips = buildTagChips(draftTags);
   const richPromptRef = useRef(null);
   const promptRef = useRef(null);
   const canvasRef = useRef(null);
@@ -268,6 +291,14 @@ export function CreatePage() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    // 创作页的提示词实时同步到全局草稿，供提示词构建页读取同一份内容。
+    if (prompt !== draft.prompt) setDraft({ ...draft, prompt });
+  }, [prompt]);
+  useEffect(() => {
+    // 参考图同步到全局草稿（仅内存共享），提示词构建页通过 draft.references 读取。
+    setDraft({ ...draft, references: files });
+  }, [files]);
   useEffect(() => {
     const editor = richPromptRef.current;
     if (editor && editorPromptText(editor) !== prompt) renderPromptContent(editor, prompt, files);
@@ -398,7 +429,9 @@ export function CreatePage() {
   function startNewCreation() {
     setThreadId(""); setWorkspaceThreadId(""); setWorkspaceView("tasks"); setPrompt("");
     setFiles([]); setReferencesLocked(false); setResults([]); setStatus("idle");
-    setTaskName(defaultThreadTitle(taskThreads)); setEditingTaskName(false); setDraft({ ...draft, prompt: "" });
+    setTaskName(defaultThreadTitle(taskThreads)); setEditingTaskName(false);
+    // 新建任务同时清空上一次从提示词构建页带回的标签栏内容。
+    setDraft({ ...draft, prompt: "", tags: [] });
     setToast("已准备新的创作");
   }
 
@@ -477,18 +510,29 @@ export function CreatePage() {
         <div className="control-scroll-area">
         <div className="control-title"><span>参考图</span><small>可选 · 最多 4 张</small></div>
         <div className={`reference-strip ${files.length ? "has-files" : "empty"}`} onDragOver={(event) => !referencesLocked && event.preventDefault()} onDrop={(event) => !referencesLocked && dropReferences(event)}>{files.map((item) => <div className="reference-item" key={item.id}><img src={item.url} alt={item.file.name} /><div className="reference-caption"><span>{item.file.name}</span>{!referencesLocked && <button onClick={() => removeReference(item.id)} title="移除参考图"><X size={13} /></button>}</div></div>)}{files.length < 4 && !referencesLocked && <label className="reference-add"><ImagePlus size={24} /><div><b>{files.length ? "继续添加" : "添加参考图"}</b><small>{files.length ? `${files.length}/4 张` : "点击或拖拽图片到这里"}</small></div><input type="file" accept="image/*" multiple onChange={(event) => addReferences(event.target.files)} /></label>}</div>
-        <div className="prompt-editor"><div className="prompt-editor-head"><span>你的构想</span><div><small className="prompt-hint">输入 @ 关联参考图</small><button type="button" onClick={() => navigate("/create/prompt-builder", { state: { prompt, references: files } })} title="构建提示词"><Sparkles size={15} /></button></div></div><div ref={richPromptRef} className="rich-prompt" contentEditable suppressContentEditableWarning onInput={syncRichPrompt} onKeyDown={handleRichPromptKeyDown} data-placeholder="写下你的创作构想…" />{mentionOpen && mentionCandidates.length > 0 && <div className="mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择，Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>{referenceLabel(item.file.name)}</span><kbd>{index + 1}</kbd></button>)}</div>}<small className="prompt-count">{prompt.length}/5000</small></div>
+        <div className="prompt-editor"><div className="prompt-editor-head"><span>你的构想</span><div><small className="prompt-hint">输入 @ 关联参考图</small><button type="button" onClick={() => navigate("/create/prompt-builder")} title="构建提示词"><Sparkles size={15} /></button></div></div><div ref={richPromptRef} className="rich-prompt" contentEditable suppressContentEditableWarning onInput={syncRichPrompt} onKeyDown={handleRichPromptKeyDown} data-placeholder="写下你的创作构想…" />{mentionOpen && mentionCandidates.length > 0 && <div className="mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择，Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>{referenceLabel(item.file.name)}</span><kbd>{index + 1}</kbd></button>)}</div>}<small className="prompt-count">{prompt.length}/5000</small></div>
         <div className="control-fields"><SelectField label="模型" value={draft.model || "gpt-image-2"} options={["gpt-image-2", "dall-e-3"]} onChange={(value) => setDraft({ ...draft, model: value })} /><SelectField label="尺寸" value={normalizeSize(draft.size)} options={GPT_IMAGE_SIZE_OPTIONS} onChange={(value) => setDraft({ ...draft, size: value })} /><SelectField label="质量" value={normalizeQuality(draft.quality)} options={[{ value: "auto", label: "自动" }, { value: "low", label: "低" }, { value: "medium", label: "中" }, { value: "high", label: "高" }]} onChange={(value) => setDraft({ ...draft, quality: value })} /><SelectField label="数量" value="1" options={["1"]} disabled /></div>
         </div>
         <div className="control-footer"><button className="plain-button" type="button" onClick={() => setAdvancedOpen(true)}><Settings2 size={15} />高级参数</button><button className="create-button" onClick={startGeneration} disabled={!["idle", "failed", "done"].includes(status) || !prompt.trim()}><WandSparkles size={17} />{status === "idle" || status === "failed" || status === "done" ? (status === "failed" ? "重试" : status === "done" ? "重新生成" : "开始创作") : status === "queued" ? "待生成" : "生成中"}</button></div>
       </section>
-      <section className="creation-canvas">
-        <div className="canvas-label"><span>{mode}</span><span>{status === "done" ? "交付完成" : "图像实验室"}</span></div>
+      {/* 标签栏：独立于结果显示模块（深色画布）的浅色卡片，固定显示在画布上方。 */}
+      <div className="canvas-column">
+        <div className="canvas-tag-panel">
+          <div className="canvas-tag-head"><span>标签栏</span><small>{draftTags.length ? `${draftTags.length} 个标签` : "暂无标签"}</small></div>
+          <div className="canvas-tag-bar">
+            {tagChips.length
+              ? tagChips.map((text, index) => <span className={`canvas-tag tone-${index % 4}`} key={`${index}-${text}`}>{text}</span>)
+              : <span className="canvas-tag-placeholder">在提示词构建页添加标签后，这里会展示对应内容</span>}
+          </div>
+        </div>
+        <section className="creation-canvas">
+          <div className="canvas-label"><span>{mode}</span><span>{status === "done" ? "交付完成" : "图像实验室"}</span></div>
         {status === "idle" && !results.length && <div className="canvas-empty"><div className="empty-star"><Sparkles size={23} /></div><h2>在这里等待<br />一个新的视野。</h2><p>填写构想，或者添加一张参考图开始。</p></div>}
         {(status === "queued" || status === "working") && <div className="canvas-empty"><div className="orbit-loader"><span /></div><h2>{status === "queued" ? "灵感正在排队" : "画面正在显影"}</h2><p>{status === "queued" ? "任务将很快开始。" : "模型正在理解光线、构图与细节。"}</p></div>}
         {(status === "done" || results.length > 0) && <div className={`result-gallery count-${results.length}`}>{results.map((result) => <article className="result-image" key={result.id}><button className="result-image-preview" type="button" onClick={() => setPreviewResult(result)} aria-label={`预览${result.title}`}><img src={result.image} alt={result.title} /></button><div><span>{result.title}</span><button type="button" onClick={() => setToast("已收藏到个人画廊")} title="收藏"><Bookmark size={15} /></button><button type="button" onClick={() => downloadResultImage(result.image, `${safeDownloadName(taskName)}-${result.attemptNumber || 1}.png`)} title="下载"><Download size={15} /></button></div></article>)}</div>}
         <div className="canvas-status"><span>状态：{status === "queued" ? "待生成" : status === "working" ? "生成中" : status === "done" ? "已生成" : status === "failed" ? "失败" : "待生成"}</span><span>消耗 {count * 12} 算力 · {files.length ? `${files.length} 张参考图已就绪` : "无需参考图"}</span></div>
-      </section>
+        </section>
+      </div>
     </div>
     {workspaceOpen && <UnifiedWorkspace view={workspaceView} onViewChange={setWorkspaceView} threads={taskThreads} thread={taskThreads.find((item) => item.id === workspaceThreadId) || taskThreads.find((item) => item.id === threadId) || taskThreads[0]} width={workspaceWidth} onResize={setWorkspaceWidth} onClose={() => setWorkspaceOpen(false)} onRetry={retryThread} onEditThread={(item) => setThreadEdit({ id: item.id, title: item.title })} onSelectThread={(item) => { setWorkspaceThreadId(item.id); setTaskName(item.title); setEditingTaskName(false); setWorkspaceView("results"); }} onSelectAttempt={(attempt, selectedThread) => { setThreadId(selectedThread.id); setWorkspaceThreadId(selectedThread.id); setPrompt(attempt.prompt || ""); setDraft({ ...draft, prompt: attempt.prompt || "", model: attempt.modelName || draft.model, size: attempt.size || draft.size, quality: attempt.quality || draft.quality }); setFiles((selectedThread.references || []).map((reference, index) => ({ id: `stored-ref-${index}`, url: reference.url || reference.objectKey || reference, file: { name: reference.filename || `参考图 ${index + 1}`, type: reference.mimeType || "image/*" } }))); setReferencesLocked(true); setResults((attempt.imageUrls || []).map((url, index) => ({ id: `${attempt.id}-${index}`, image: url, title: `${mode} · ${index + 1}`, version: "初稿", attemptNumber: attempt.attemptNo || selectedThread.attempts.findIndex((item) => item.id === attempt.id) + 1 }))); setStatus(attempt.rawStatus === "succeeded" || (attempt.imageUrls || []).length ? "done" : attempt.rawStatus === "failed" ? "failed" : attempt.rawStatus === "running" ? "working" : "queued"); }} />}
     {threadEdit && <Modal title="修改任务名称" onClose={() => setThreadEdit(null)}><div className="template-form"><label>任务名称<input autoFocus maxLength="40" value={threadEdit.title} onChange={(event) => setThreadEdit({ ...threadEdit, title: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.closest("form")?.requestSubmit(); }} /></label><button type="button" className="primary-action" disabled={!threadEdit.title.trim()} onClick={async () => { try { const response = await fetch(`/gen_imgs/threads/${threadEdit.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: threadEdit.title.trim() }) }); if (!response.ok) throw new Error("任务名称修改失败"); setTaskThreads((items) => items.map((item) => item.id === threadEdit.id ? { ...item, title: threadEdit.title.trim() } : item)); if (workspaceThreadId === threadEdit.id) setTaskName(threadEdit.title.trim()); setThreadEdit(null); setToast("任务名称已更新"); } catch (error) { setToast(error.message); } }}>保存</button></div></Modal>}
@@ -498,7 +542,7 @@ export function CreatePage() {
   </section>;
 }
 
-function ImagePreview({ result, filename, onClose, onDownload }) {
+export function ImagePreview({ result, filename, onClose, onDownload }) {
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
@@ -508,7 +552,7 @@ function ImagePreview({ result, filename, onClose, onDownload }) {
   function onPointerDown(event) { event.currentTarget.setPointerCapture(event.pointerId); dragOrigin.current = { x: event.clientX - position.x, y: event.clientY - position.y }; setDragging(true); }
   function onPointerMove(event) { if (dragging && dragOrigin.current) setPosition({ x: event.clientX - dragOrigin.current.x, y: event.clientY - dragOrigin.current.y }); }
   function stopDragging() { setDragging(false); dragOrigin.current = null; }
-  return <div className="image-preview-backdrop" role="dialog" aria-modal="true" aria-label="图片预览" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="image-preview-toolbar"><span>{filename}</span><div><button type="button" onClick={() => updateScale(scale - .25)} title="缩小">−</button><b>{Math.round(scale * 100)}%</b><button type="button" onClick={() => updateScale(scale + .25)} title="放大">+</button><button type="button" onClick={() => { setScale(1); setPosition({ x: 0, y: 0 }); }} title="重置">↺</button><button type="button" onClick={onDownload} title="下载"><Download size={17} /></button><button type="button" onClick={onClose} title="关闭"><X size={18} /></button></div></div><div className={`image-preview-stage ${dragging ? "is-dragging" : ""}`} onWheel={(event) => { event.preventDefault(); updateScale(scale + (event.deltaY > 0 ? -.1 : .1)); }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={stopDragging} onPointerCancel={stopDragging}><img src={result.image} alt={result.title} style={{ transform: `translate(${position.x}px, ${position.y}px) scale(${scale})` }} draggable="false" /></div><p className="image-preview-hint">滚轮缩放 · 拖动查看 · Esc 关闭</p></div>;
+  return <div className="image-preview-backdrop" role="dialog" aria-modal="true" aria-label="图片预览" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}><div className="image-preview-toolbar"><span>{filename}</span><div><button type="button" onClick={() => updateScale(scale - .25)} title="缩小">−</button><b>{Math.round(scale * 100)}%</b><button type="button" onClick={() => updateScale(scale + .25)} title="放大">+</button><button type="button" onClick={() => { setScale(1); setPosition({ x: 0, y: 0 }); }} title="重置">↺</button>{onDownload && <button type="button" onClick={onDownload} title="下载"><Download size={17} /></button>}<button type="button" onClick={onClose} title="关闭"><X size={18} /></button></div></div><div className={`image-preview-stage ${dragging ? "is-dragging" : ""}`} onWheel={(event) => { event.preventDefault(); updateScale(scale + (event.deltaY > 0 ? -.1 : .1)); }} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={stopDragging} onPointerCancel={stopDragging}><img src={result.image} alt={result.title} style={{ transform: `translate(${position.x}px, ${position.y}px) scale(${scale})` }} draggable="false" /></div><p className="image-preview-hint">滚轮缩放 · 拖动查看 · Esc 关闭</p></div>;
 }
 
 function AdvancedPromptModal({ value, basePrompt, onChange, onClose, onSave }) {

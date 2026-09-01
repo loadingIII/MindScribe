@@ -199,20 +199,42 @@ box-shadow:0 2px 0 rgba(127,147,31,.08)}
 .prompt-chip span{
   font-weight:700;
 white-space:nowrap}
-.prompt-chip textarea{
-  min-width:0;
+/* 富文本芯片输入框：contenteditable 实现，[序号:图片名] 标记原生高亮。 */
+.prompt-chip .rich-input{
+  display:block;
+  width:100%;
+  box-sizing:border-box;
   min-height:22px;
-  flex:1;
-  resize:none;
-  overflow:hidden;
-  padding:0;
+  padding:0 36px 0 0;
   border:0;
   outline:0;
   background:transparent;
   color:#272b24;
-font:11px/1.6 Georgia,serif}
-.prompt-chip textarea::placeholder{
-color:#7d8b42}
+  caret-color:#5f6650;
+  white-space:pre-wrap;
+  word-break:break-word;
+  /* 字体与大小与芯片标签保持一致（标签为页面默认字体 12px）；行高与标签胶囊等高，避免换行后文字与标签重叠。 */
+  font-size:12px;
+line-height:1.8}
+.prompt-chip .rich-input:focus{
+outline:0}
+.prompt-chip .rich-input:empty::before{
+  content:attr(data-placeholder);
+  color:#7d8b42;
+pointer-events:none}
+.prompt-chip .rich-input::selection{
+background:rgba(125,139,66,.28)}
+/* 参考图标记胶囊：原子块（contenteditable=false），仅显示图片名，整体选中、一次删除。 */
+.prompt-chip .chip-ref-mark{
+  display:inline-block;
+  background:#e9eec6;
+  color:#5d6b2a;
+  border-radius:4px;
+  padding:0 4px;
+  white-space:nowrap;
+  /* 阻止继承首行 text-indent，避免胶囊内部文字被再次缩进。 */
+  text-indent:0;
+font-weight:600}
 .prompt-chip button{
   display:grid;
   place-items:center;
@@ -274,17 +296,6 @@ font-size:14px}
 box-sizing:border-box}
 .prompt-rich-editor .prompt-chip>span{
 font-size:14px}
-.prompt-rich-editor .prompt-chip textarea{
-  display:block;
-  width:auto;
-  min-height:26px;
-  max-height:none;
-  flex:1;
-  overflow:hidden;
-  padding:0;
-  border-radius:0;
-  background:transparent;
-font:14px/1.7 Georgia,serif}
 .prompt-rich-editor .prompt-chip button{
 flex:none}
 .finish-button{
@@ -376,8 +387,6 @@ cursor:not-allowed}
   grid-column:2}
   .imgs-prompt-page{
   padding:20px 24px 26px}
-  .imgs-prompt-layout{
-  grid-template-columns:minmax(0,1fr) minmax(320px,.95fr)}
 }
 @media(max-width:760px){
   .imgs-prompt-page{
@@ -390,8 +399,22 @@ cursor:not-allowed}
   .imgs-prompt-layout{
     height:auto;
     min-height:0;
-    grid-template-columns:1fr;
+    flex-direction:column;
   overflow:visible}
+  /* 小屏收起拖拽分隔条，模块按内容自然堆叠。 */
+  .pane-divider{
+  display:none}
+  .prompt-left-pane{
+    width:100%!important;
+  min-width:0}
+  .tag-workbench{
+  min-height:0}
+  .reference-workbench{
+    height:auto!important;
+  min-height:0}
+  .reference-workbench-grid{
+    max-height:300px;
+  grid-template-columns:repeat(2,minmax(0,1fr))}
   .tag-workbench{
     border-right:0;
   border-bottom:1px solid #dedfd5}
@@ -448,28 +471,10 @@ cursor:not-allowed}
 .prompt-rich-editor:has(.prompt-chip) > div:not(.prompt-chip):empty,
 .prompt-rich-editor:has(.prompt-chip) > div:not(.prompt-chip):has(> br:only-child){display:none}
 
-/* 文本也作为芯片编辑，避免通用大文本框规则撑开芯片高度。 */
-.prompt-rich-editor .prompt-chip textarea{
-  width:auto;
-  min-height:22px;
-  max-height:none;
-  flex:1;
-  resize:none;
-  overflow:hidden;
-  padding:0;
-  border:0;
-  outline:0;
-  background:transparent;
-  color:#272b24;
-  font:11px/1.6 Georgia,serif;
-}
 .prompt-rich-editor .prompt-text-chip{
   border-color:#d8ddd0;
   background:#fffdf8;
   color:#68705f;
-}
-.prompt-rich-editor .prompt-text-chip textarea{
-  color:#3d4339;
 }
 
 /* 芯片采用清晰的标签栏层级，用户输入与结构化标签一眼可区分。 */
@@ -489,7 +494,7 @@ cursor:not-allowed}
   position:absolute;
   top:10px;
   left:14px;
-  padding:5px 8px;
+  padding:3px 8px;
   border-radius:7px;
   background:rgba(83,101,22,.1);
   color:#5b6e19;
@@ -529,14 +534,8 @@ cursor:not-allowed}
 }
 
 /* 正文占满芯片整行：首行通过 JS 测量的 textIndent 避开标签，换行后延伸到标签下方。 */
-.prompt-rich-editor .prompt-chip textarea{
-  width:100%;
-  box-sizing:border-box;
-  min-width:0;
+.prompt-rich-editor .prompt-chip .rich-input{
   min-height:30px;
-  padding-right:36px;
-  font-size:15px;
-  line-height:1.65;
 }
 .prompt-rich-editor .prompt-chip button{
   position:absolute;
