@@ -33,3 +33,17 @@ oss:
   access-key-secret: ${OSS_ACCESS_KEY_SECRET}
   bucket-name: ${OSS_BUCKET_NAME}
   url-expire-seconds: ${OSS_URL_EXPIRE_SECONDS:3600}
+
+jwt:
+  # 开发环境默认值；生产环境必须通过 JWT_SECRET 设置独立的高强度密钥。
+  secret: ${JWT_SECRET:mindscribe-development-jwt-secret-change-before-production}
+  issuer: ${JWT_ISSUER:mindscribe}
+  expiration-seconds: ${JWT_EXPIRATION_SECONDS:1800}
+  cookie-name: ${JWT_COOKIE_NAME:mindscribe-token}
+  secure-cookie: ${JWT_SECURE_COOKIE:false}
+
+spring.data.redis:
+  host: ${REDIS_HOST:127.0.0.1}
+  port: ${REDIS_PORT:6379}
+  password: ${REDIS_PASSWORD:}
+  database: ${REDIS_DATABASE:0}

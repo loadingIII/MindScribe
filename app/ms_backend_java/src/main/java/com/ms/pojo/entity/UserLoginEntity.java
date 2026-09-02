@@ -4,6 +4,7 @@ package com.ms.pojo.entity;
 public record UserLoginEntity(
         String id,
         String username,
+        String email,
         String passwordHash,
         String displayName,
         String role) {}
