@@ -24,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.UUID;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
 
@@ -154,6 +155,19 @@ public class GenImgsServiceImpl implements GenImgsService {
                 ));
                 AttemptEntity update = new AttemptEntity();
                 update.setId(attempt.attemptId()); update.setStatus(task.status());
+                // 只在状态首次进入运行或终态时补时间，避免轮询覆盖原始时间。
+                if ("running".equals(task.status()) && !"running".equals(attempt.status())) {
+                    update.setStartedAt(LocalDateTime.now());
+                }
+                if (("succeeded".equals(task.status()) || "failed".equals(task.status()))
+                        && !"succeeded".equals(attempt.status()) && !"failed".equals(attempt.status())) {
+                    LocalDateTime finishedAt = LocalDateTime.now();
+                    update.setFinishedAt(finishedAt);
+                    // 任务可能在首次轮询前就已结束，此时同时补齐开始时间。
+                    if (!"running".equals(attempt.status())) {
+                        update.setStartedAt(finishedAt);
+                    }
+                }
                 List<Map<String, Object>> resultImages = new ArrayList<>();
                 List<String> urls = normalizedUrls;
                 for (int i = 0; i < urls.size(); i++) { Map<String, Object> image = new LinkedHashMap<>(); image.put("url", urls.get(i)); image.put("mimeType", IMAGE_MIME_TYPE); image.put("sortOrder", i + 1); resultImages.add(image); }
@@ -242,7 +256,22 @@ public class GenImgsServiceImpl implements GenImgsService {
         attempt.setPrompt(request.getPrompt());
         attempt.setSize(request.getSize()); attempt.setQuality(request.getQuality()); attempt.setOutputFormat(request.getOutputFormat());
         attempt.setRequestedCount(request.getN() == null ? 1 : request.getN()); attempt.setResults("[]");
+        // Java 根据最终提交的参考图数量决定生成模式，避免前端值与实际数据不一致。
+        attempt.setMode(referenceImageCount(request) > 0 ? "image-to-image" : "text-to-image");
         attempt.setExternalTaskId(source.taskId()); return attempt;
+    }
+
+    /** 统计请求中最终可用的参考图，包括复用 URL 和新上传文件。 */
+    private static int referenceImageCount(GenerateImageDTO request) {
+        int count = 0;
+        if (request.getReferenceImageUrls() != null) {
+            count += (int) request.getReferenceImageUrls().stream()
+                .filter(value -> value != null && !value.isBlank()).count();
+        }
+        if (request.getReferenceImages() != null) {
+            count += (int) request.getReferenceImages().stream().filter(file -> file != null && !file.isEmpty()).count();
+        }
+        return count;
     }
 
     /** 将数据库 Attempt 映射为轮询接口使用的响应对象，保留可回填的生成参数。 */
