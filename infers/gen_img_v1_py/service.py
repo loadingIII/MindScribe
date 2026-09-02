@@ -10,6 +10,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Mapping
 
+from libs.redis import RedisUtil
+
 from .config import config as app_config
 from .open_ai import async_generate_img, get_async_client
 from .prompt_mapping import build_prompt, build_prompt_from_payload
@@ -29,33 +31,47 @@ class _TaskRecord:
 
 
 class ImageGenerationService:
-    """负责提交、执行和查询图片生成任务的业务服务。"""
+    """负责提交、执行和查询图片生成任务，并持久化任务快照。"""
 
     def __init__(self, config: Mapping[str, object] = app_config) -> None:
-        """初始化任务存储和配置；任务状态仅在当前进程生命周期内有效。"""
+        """初始化任务存储和配置。"""
         self._config = config
         self._tasks: dict[str, _TaskRecord] = {}
         self._lock = threading.RLock()
+        self._redis = RedisUtil.from_env()
+
+    def _redis_key(self, task_id: str) -> str:
+        return f"mindscribe:python:task:{task_id}"
 
     def create_task(self) -> str:
         """创建待执行任务并返回唯一任务标识。"""
         task_id = uuid.uuid4().hex
         with self._lock:
             self._tasks[task_id] = _TaskRecord()
+        self._save_redis(task_id, TaskStatus.PENDING)
         return task_id
 
     def get_task(self, task_id: str) -> TaskResponse | None:
         """读取任务快照；任务不存在时返回 None。"""
         with self._lock:
             record = self._tasks.get(task_id)
-            if record is None:
-                return None
+            if record is not None:
+                return TaskResponse(
+                    task_id=task_id,
+                    status=record.status,
+                    image_urls=list(record.image_urls),
+                    error=record.error,
+                )
+
+        payload = self._redis.get_json(self._redis_key(task_id))
+        if payload is not None:
             return TaskResponse(
                 task_id=task_id,
-                status=record.status,
-                image_urls=list(record.image_urls),
-                error=record.error,
+                status=TaskStatus(payload["status"]),
+                image_urls=payload.get("image_urls", []),
+                error=payload.get("error"),
             )
+        return None
 
     def options_from_request(
         self,
@@ -114,6 +130,7 @@ class ImageGenerationService:
         """将存在的任务更新为执行中状态。"""
         with self._lock:
             self._tasks[task_id].status = TaskStatus.RUNNING
+        self._save_redis(task_id, TaskStatus.RUNNING)
 
     def _set_succeeded(self, task_id: str, image_urls: list[str]) -> None:
         """保存任务生成结果并标记为成功。"""
@@ -122,6 +139,7 @@ class ImageGenerationService:
             record.status = TaskStatus.SUCCEEDED
             record.image_urls = image_urls
             record.error = None
+        self._save_redis(task_id, TaskStatus.SUCCEEDED, image_urls=image_urls)
 
     def _set_failed(self, task_id: str, error: str) -> None:
         """保存错误信息并标记任务为失败。"""
@@ -129,3 +147,9 @@ class ImageGenerationService:
             record = self._tasks[task_id]
             record.status = TaskStatus.FAILED
             record.error = error or "图片生成失败"
+        self._save_redis(task_id, TaskStatus.FAILED, error=error or "图片生成失败")
+
+    def _save_redis(self, task_id: str, status: TaskStatus, *, image_urls: list[str] | None = None, error: str | None = None) -> None:
+        """更新 Redis 中的任务快照。"""
+        payload = {"status": status.value, "image_urls": image_urls or [], "error": error}
+        self._redis.set_json(self._redis_key(task_id), payload, ttl_seconds=7 * 24 * 3600)

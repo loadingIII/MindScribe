@@ -27,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 /** 图片生成业务：负责 DTO 转换、任务提交及结果反序列化。 */
 @Service
@@ -41,15 +42,17 @@ public class GenImgsServiceImpl implements GenImgsService {
     private final String serviceUrl;
     private final OssStorageUtil oss;
     private final GenImgsMapper dbMapper;
+    private final StringRedisTemplate redis;
     private final Map<String, List<AttemptVO>> threads = new ConcurrentHashMap<>();
 
-    public GenImgsServiceImpl(HttpClientUtil http, ObjectMapper mapper, OssStorageUtil oss, GenImgsMapper genImgsMapper,
+    public GenImgsServiceImpl(HttpClientUtil http, ObjectMapper mapper, OssStorageUtil oss, GenImgsMapper genImgsMapper, StringRedisTemplate redis,
                               @Value("${image-generation.base-url}") String host,
                               @Value("${image-generation.port}") int port) {
         this.http = http;
         this.mapper = mapper;
         this.oss = oss;
         this.dbMapper = genImgsMapper;
+        this.redis = redis;
         this.serviceUrl = host.replaceAll("/$", "") + ":" + port;
     }
 
@@ -100,6 +103,7 @@ public class GenImgsServiceImpl implements GenImgsService {
         ThreadEntity thread = toThread(threadId, userId, request, referenceUrls);
         dbMapper.insertThread(thread);
         dbMapper.insertAttempt(toAttempt(attempt, request, threadId, 1));
+        saveAttemptSnapshot(threadId, attempt);
         List<AttemptVO> attempts = new ArrayList<>();
         attempts.add(attempt);
         threads.put(threadId, attempts);
@@ -119,6 +123,7 @@ public class GenImgsServiceImpl implements GenImgsService {
         ThreadEntity thread = dbMapper.findThread(threadId);
         int attemptNo = thread == null ? attempts.size() : thread.getAttemptCount() + 1;
         dbMapper.insertAttempt(toAttempt(attempt, request, threadId, attemptNo));
+        saveAttemptSnapshot(threadId, attempt);
         if (thread != null) { thread.setStatus("pending"); thread.setAttemptCount(attemptNo); dbMapper.updateThread(thread); }
         return new ThreadVO(threadId, attempts);
     }
@@ -174,7 +179,13 @@ public class GenImgsServiceImpl implements GenImgsService {
                 update.setResults(mapper.writeValueAsString(resultImages));
                 update.setErrorMessage(task.error()); update.setExternalTaskId(task.taskId());
                 dbMapper.updateAttempt(update);
+                saveAttemptSnapshot(threadId, refreshed.get(refreshed.size() - 1));
             } catch (Exception e) {
+                AttemptVO snapshot = readAttemptSnapshot(attempt);
+                if (snapshot != null) {
+                    refreshed.add(snapshot);
+                    continue;
+                }
                 log.warn("刷新任务状态失败，threadId={} taskId={}", threadId, attempt.taskId(), e);
                 refreshed.add(attempt);
             }
@@ -288,6 +299,21 @@ public class GenImgsServiceImpl implements GenImgsService {
             source.getQuality(),
             source.getOutputFormat()
         );
+    }
+
+    /** 保存 Java 侧 Attempt 快照，供远程任务暂时不可用时兜底。 */
+    private void saveAttemptSnapshot(String threadId, AttemptVO attempt) {
+        try {
+            redis.opsForValue().set("mindscribe:java:attempt:" + attempt.attemptId(), mapper.writeValueAsString(attempt), java.time.Duration.ofDays(7));
+        } catch (Exception e) { log.warn("保存 Attempt Redis 快照失败，threadId={}", threadId, e); }
+    }
+
+    /** 读取最近一次 Java 快照；只在 Python 查询失败时使用。 */
+    private AttemptVO readAttemptSnapshot(AttemptVO attempt) {
+        try {
+            String value = redis.opsForValue().get("mindscribe:java:attempt:" + attempt.attemptId());
+            return value == null ? null : mapper.readValue(value, AttemptVO.class);
+        } catch (Exception e) { return null; }
     }
 
     private static void add(List<HttpClientUtil.Part> parts, String name, String value) {
