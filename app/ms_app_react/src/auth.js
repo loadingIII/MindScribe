@@ -8,6 +8,11 @@ export function installAuthFetch() {
     const isSameOrigin = requestUrl.startsWith("/") || requestUrl.startsWith(window.location.origin);
     const response = await nativeFetch(input, isSameOrigin ? { ...init, credentials: init.credentials || "include" } : init);
     const path = requestUrl.startsWith(window.location.origin) ? new URL(requestUrl).pathname : requestUrl;
+    if (!response.ok) {
+      response.clone().json().then((result) => {
+        if (result?.message) window.dispatchEvent(new CustomEvent("mindscribe-api-error", { detail: { message: result.message, path } }));
+      }).catch(() => {});
+    }
     if ((response.status === 401 || response.status === 403) && !path.startsWith("/auth/login")) {
       window.dispatchEvent(new CustomEvent("mindscribe-auth-invalid"));
     }
