@@ -2,6 +2,7 @@
 export function installAuthFetch() {
   if (window.__mindscribeAuthFetchInstalled) return;
   const nativeFetch = window.fetch.bind(window);
+  /** 统一为同源请求携带认证 Cookie，并处理失效登录态。 */
   window.fetch = async (input, init = {}) => {
     const requestUrl = typeof input === "string" ? input : input?.url || "";
     const isSameOrigin = requestUrl.startsWith("/") || requestUrl.startsWith(window.location.origin);
@@ -14,4 +15,3 @@ export function installAuthFetch() {
   };
   window.__mindscribeAuthFetchInstalled = true;
 }
-
