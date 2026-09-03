@@ -79,7 +79,7 @@ function mapThread(thread, title) {
 
 // 将提示词构建页带回的标签转换为标签栏芯片数据：参考图标记解析为独立段，每个标签独立限制 20 字符。
 // 单个标签在标签栏的最大展示字符数（按显示文本计算，参考图标记按图片名计）。
-const TAG_CHIP_MAX = 50;
+const TAG_CHIP_MAX = 20;
 
 /** 把标签值拆为文本段与参考图段：[序号:图片名] 识别为参考图段，仅保留图片名用于展示。 */
 function splitTagSegments(value) {
@@ -97,13 +97,28 @@ function splitTagSegments(value) {
   return segments;
 }
 
+/** 在剩余字符预算内截断标签片段；参考图片段的 text 就是 filename，因此按文件名计数。 */
+function truncateTagSegment(segment, remain) {
+  if (segment.text.length <= remain) return segment;
+  if (remain <= 0) return null;
+  if (remain <= 3) {
+    return { type: segment.type, text: ".".repeat(remain) };
+  }
+  return {
+    type: segment.type,
+    text: `${segment.text.slice(0, remain - 3)}...`
+  };
+}
+
 /** 构建标签栏芯片：每个标签独立计算 20 字符预算（不再共享总预算），超限时在当前段内截断并追加省略号。 */
 function buildTagChips(tags) {
   return tags.map((tag) => {
+    const key = String(tag?.key || "").trim();
+    const value = String(tag?.value || "").trim();
     // 键名作为首个文本段参与预算；无值时仅展示键名。
-    const segments = tag.value
-      ? [{ type: "text", text: `${tag.key}：` }, ...splitTagSegments(tag.value)]
-      : [{ type: "text", text: tag.key }];
+    const segments = value
+      ? [{ type: "text", text: `${key}：` }, ...splitTagSegments(value)]
+      : [{ type: "text", text: key }];
     const list = [];
     let used = 0;
     for (const segment of segments) {
@@ -115,10 +130,15 @@ function buildTagChips(tags) {
         continue;
       }
       // 当前段超出剩余预算：文本段或参考图名均就地截断并追加省略号。
-      list.push({ type: segment.type, text: `${segment.text.slice(0, remain)}...` });
+      const truncated = truncateTagSegment(segment, remain);
+      if (truncated) list.push(truncated);
       break;
     }
-    return list;
+    return {
+      segments: list,
+      // 悬浮提示保留标签的完整原始内容，不受视觉截断影响。
+      fullText: value ? `${key}：${value}` : key
+    };
   });
 }
 
@@ -758,7 +778,7 @@ export function CreatePage() {
           <div className="canvas-tag-bar">
             {tagChips.length
               ? <>
-                {tagChips.slice(0, tagsCollapsed ? 3 : tagChips.length).map((segments, index) => <span className={`canvas-tag tone-${index % 4}`} key={index}>{segments.map((segment, part) => segment.type === "ref"
+                {tagChips.slice(0, tagsCollapsed ? 3 : tagChips.length).map((chip, index) => <span className={`canvas-tag tone-${index % 4}`} key={index} title={chip.fullText} aria-label={chip.fullText}>{chip.segments.map((segment, part) => segment.type === "ref"
                   ? <span className="tag-ref-chip" key={part}>{segment.text}</span>
                   : <span key={part}>{segment.text}</span>)}</span>)}
                 {tagsCollapsed && tagChips.length > 3 && <span className="canvas-tag tone-more">+{tagChips.length - 3}</span>}
