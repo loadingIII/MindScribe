@@ -122,7 +122,7 @@ public class GenImgsServiceImpl implements GenImgsService {
     public ThreadVO retry(String userId, String threadId, GenerateImageDTO request) throws IOException, InterruptedException {
         requireThreadOwner(userId, threadId);
         // 每次重试都从 MySQL 读取历史，避免进程内缓存成为业务状态来源。
-        List<AttemptEntity> stored = dbMapper.findAttemptsByThread(threadId);
+        List<AttemptEntity> stored = dbMapper.findAttemptsByThread(threadId, 1000000, 0);
         if (stored == null || stored.isEmpty()) {
             log.warn("重试失败，线程不存在，threadId={}", threadId);
             throw new IllegalArgumentException("Thread 不存在: " + threadId);
@@ -183,7 +183,7 @@ public class GenImgsServiceImpl implements GenImgsService {
     public ThreadVO getThread(String userId, String threadId) throws IOException {
         requireThreadOwner(userId, threadId);
         // MySQL 是 Thread/Attempt 的最终事实来源；内存只用于减少对象重建，不保存业务状态。
-        List<AttemptEntity> stored = dbMapper.findAttemptsByThread(threadId);
+        List<AttemptEntity> stored = dbMapper.findAttemptsByThread(threadId, 1000000, 0);
         if (stored == null || stored.isEmpty()) throw new IllegalArgumentException("Thread 不存在: " + threadId);
         List<AttemptVO> attempts = new ArrayList<>();
         for (AttemptEntity item : stored) {
@@ -272,16 +272,18 @@ public class GenImgsServiceImpl implements GenImgsService {
     }
 
     @Override
-    public List<ThreadEntity> findThreads(String userId) {
-        List<ThreadEntity> result = dbMapper.findThreadsByUser(userId);
+    public List<ThreadEntity> findThreads(String userId, int page, int size) {
+        int safeSize = normalizePageSize(size);
+        List<ThreadEntity> result = dbMapper.findThreadsByUser(userId, safeSize, normalizePage(page) * safeSize);
         log.debug("查询用户线程完成，userId={} count={}", userId, result == null ? 0 : result.size());
         return result;
     }
 
     @Override
-    public List<AttemptEntity> findAttempts(String userId, String threadId) {
+    public List<AttemptEntity> findAttempts(String userId, String threadId, int page, int size) {
         requireThreadOwner(userId, threadId);
-        List<AttemptEntity> result = dbMapper.findAttemptsByThread(threadId);
+        int safeSize = normalizePageSize(size);
+        List<AttemptEntity> result = dbMapper.findAttemptsByThread(threadId, safeSize, normalizePage(page) * safeSize);
         log.debug("查询线程尝试完成，threadId={} count={}", threadId, result == null ? 0 : result.size());
         return result;
     }
@@ -327,6 +329,10 @@ public class GenImgsServiceImpl implements GenImgsService {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "无权访问该 Thread");
         }
     }
+
+    /** 统一限制分页参数，避免异常值造成超大查询。 */
+    private static int normalizePage(int page) { return Math.max(page, 0); }
+    private static int normalizePageSize(int size) { return Math.max(1, Math.min(size, 50)); }
 
     private AttemptEntity toAttempt(AttemptVO source, GenerateImageDTO request, String threadId, int number) {
         AttemptEntity attempt = new AttemptEntity(); attempt.setId(source.attemptId()); attempt.setThreadId(threadId);

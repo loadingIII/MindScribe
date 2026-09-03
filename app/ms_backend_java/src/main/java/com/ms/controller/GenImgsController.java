@@ -44,11 +44,11 @@ public class GenImgsController {
 
     /** 按用户倒序查询 Thread。 */
     @GetMapping("/threads")
-    public List<ThreadEntity> findThreads(jakarta.servlet.http.HttpServletRequest servletRequest) { String userId = currentUserId(servletRequest); log.debug("查询用户线程，userId={}", userId); return service.findThreads(userId); }
+    public List<ThreadEntity> findThreads(jakarta.servlet.http.HttpServletRequest servletRequest, @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "10") int size) { String userId = currentUserId(servletRequest); log.debug("查询用户线程，userId={} page={} size={}", userId, page, size); return service.findThreads(userId, page, size); }
 
     /** 按 Thread 倒序查询 Attempt。 */
     @GetMapping("/threads/{threadId}/attempts")
-    public List<AttemptEntity> findAttempts(@PathVariable String threadId, jakarta.servlet.http.HttpServletRequest servletRequest) { log.debug("查询线程尝试，threadId={}", threadId); return service.findAttempts(currentUserId(servletRequest), threadId); }
+    public List<AttemptEntity> findAttempts(@PathVariable String threadId, jakarta.servlet.http.HttpServletRequest servletRequest, @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "10") int size) { log.debug("查询线程尝试，threadId={} page={} size={}", threadId, page, size); return service.findAttempts(currentUserId(servletRequest), threadId, page, size); }
 
     /** 修改 Thread 的可变字段。 */
     @PatchMapping("/threads/{threadId}")

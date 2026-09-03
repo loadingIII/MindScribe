@@ -44,3 +44,5 @@ exp/gen_img_demo/config.yml
 .DS_Store
 Thumbs.db
 
+# AI计划文档
+.docs/*
