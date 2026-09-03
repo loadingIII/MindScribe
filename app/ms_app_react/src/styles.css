@@ -4620,6 +4620,15 @@ body {
   color:#61731a;
   font-size:9px;
 }
+.attempt-rail-item>div small {
+  display:block;
+  overflow:hidden;
+  color:var(--muted);
+  font-size:10px;
+  line-height:1.35;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
 .attempt-rail-item img {
   border-radius:12px;
   border:1px solid rgba(43,48,37,.1);
@@ -5065,6 +5074,15 @@ body {
   display: grid;
   gap: 5px;
   justify-content: stretch;
+}
+.unified-content > .attempt-rail.embedded-drawer .attempt-rail-item > div small {
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .empty-task-state {
   display:flex;
