@@ -79,7 +79,7 @@ function mapThread(thread, title) {
 
 // 将提示词构建页带回的标签转换为标签栏芯片数据：参考图标记解析为独立段，每个标签独立限制 20 字符。
 // 单个标签在标签栏的最大展示字符数（按显示文本计算，参考图标记按图片名计）。
-const TAG_CHIP_MAX = 20;
+const TAG_CHIP_MAX = 23;
 
 /** 把标签值拆为文本段与参考图段：[序号:图片名] 识别为参考图段，仅保留图片名用于展示。 */
 function splitTagSegments(value) {
