@@ -39,9 +39,23 @@ function attemptTags(value, fallback) {
   }
 }
 
+/** 判断草稿标签是否仍与某次 Attempt 的快照一致。 */
+function sameTags(left, right) {
+  const normalize = (tags) => (Array.isArray(tags) ? tags : [])
+    .map((tag) => ({
+      key: String(tag?.key || "").trim(),
+      value: String(tag?.value || "").trim()
+    }));
+  return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
+}
+
 // 任务线程与尝试记录的统一视图映射。
 function mapThread(thread, title) {
-  const references = typeof thread.referenceImages === "string" ? (() => { try { return JSON.parse(thread.referenceImages); } catch { return []; } })() : (thread.referenceImages || []);
+  // 兼容 Java/MySQL 返回的驼峰、下划线字段，以及历史记录中的 JSON 字符串。
+  const rawReferences = thread.referenceImages ?? thread.reference_images ?? thread.references ?? [];
+  const references = typeof rawReferences === "string" ? (() => {
+    try { return JSON.parse(rawReferences); } catch { return []; }
+  })() : (Array.isArray(rawReferences) ? rawReferences : []);
   const sourceAttempts = [...(thread.attempts || [])].sort((a, b) => (a.attemptNo ?? a.attempt_no ?? 0) - (b.attemptNo ?? b.attempt_no ?? 0));
   const attempts = sourceAttempts.map((item, index) => {
     const status = String(item.status || "pending").toLowerCase();
@@ -64,12 +78,22 @@ function mapThread(thread, title) {
       progress: status === "succeeded" ? 100 : 24
     };
   });
-  return { id: thread.threadId || thread.id, title: title || thread.title || thread.prompt || "未命名创作", prompt: thread.prompt || "", status: attempts.at(-1)?.status || statusText(thread.status), createdAt: thread.createdAt || "刚刚", thumbnail: references[0]?.url || references[0]?.objectKey || references[0], references, attempts };
+  const normalizedReferences = references
+    .map((reference) => {
+      if (typeof reference === "string") return reference;
+      if (!reference || typeof reference !== "object") return null;
+      return {
+        ...reference,
+        url: reference.url || reference.imageUrl || reference.image_url || reference.objectKey || reference.object_key
+      };
+    })
+    .filter((reference) => typeof reference === "string" || reference?.url);
+  return { id: thread.threadId || thread.id, title: title || thread.title || thread.prompt || "未命名创作", prompt: thread.prompt || "", status: attempts.at(-1)?.status || statusText(thread.status), createdAt: thread.createdAt || "刚刚", thumbnail: normalizedReferences[0]?.url || normalizedReferences[0]?.objectKey || normalizedReferences[0], references: normalizedReferences, attempts };
 }
 
 // 将提示词构建页带回的标签转换为标签栏芯片数据：参考图标记解析为独立段，每个标签独立限制 20 字符。
 // 单个标签在标签栏的最大展示字符数（按显示文本计算，参考图标记按图片名计）。
-const TAG_CHIP_MAX = 50;
+const TAG_CHIP_MAX = 23;
 
 /** 把标签值拆为文本段与参考图段：[序号:图片名] 识别为参考图段，仅保留图片名用于展示。 */
 function splitTagSegments(value) {
@@ -87,13 +111,28 @@ function splitTagSegments(value) {
   return segments;
 }
 
+/** 在剩余字符预算内截断标签片段；参考图片段的 text 就是 filename，因此按文件名计数。 */
+function truncateTagSegment(segment, remain) {
+  if (segment.text.length <= remain) return segment;
+  if (remain <= 0) return null;
+  if (remain <= 3) {
+    return { type: segment.type, text: ".".repeat(remain) };
+  }
+  return {
+    type: segment.type,
+    text: `${segment.text.slice(0, remain - 3)}...`
+  };
+}
+
 /** 构建标签栏芯片：每个标签独立计算 20 字符预算（不再共享总预算），超限时在当前段内截断并追加省略号。 */
 function buildTagChips(tags) {
   return tags.map((tag) => {
+    const key = String(tag?.key || "").trim();
+    const value = String(tag?.value || "").trim();
     // 键名作为首个文本段参与预算；无值时仅展示键名。
-    const segments = tag.value
-      ? [{ type: "text", text: `${tag.key}：` }, ...splitTagSegments(tag.value)]
-      : [{ type: "text", text: tag.key }];
+    const segments = value
+      ? [{ type: "text", text: `${key}：` }, ...splitTagSegments(value)]
+      : [{ type: "text", text: key }];
     const list = [];
     let used = 0;
     for (const segment of segments) {
@@ -105,10 +144,15 @@ function buildTagChips(tags) {
         continue;
       }
       // 当前段超出剩余预算：文本段或参考图名均就地截断并追加省略号。
-      list.push({ type: segment.type, text: `${segment.text.slice(0, remain)}...` });
+      const truncated = truncateTagSegment(segment, remain);
+      if (truncated) list.push(truncated);
       break;
     }
-    return list;
+    return {
+      segments: list,
+      // 悬浮提示保留标签的完整原始内容，不受视觉截断影响。
+      fullText: value ? `${key}：${value}` : key
+    };
   });
 }
 
@@ -323,6 +367,10 @@ export function CreatePage() {
   const [workspaceWidth, setWorkspaceWidth] = useState(340);
   const [workspaceThreadId, setWorkspaceThreadId] = useState("");
   const [taskThreads, setTaskThreads] = useState([]);
+  const [threadPage, setThreadPage] = useState(0);
+  const [threadLoading, setThreadLoading] = useState(false);
+  const [threadHasMore, setThreadHasMore] = useState(true);
+  const [attemptPages, setAttemptPages] = useState({});
   const [currentUserId, setCurrentUserId] = useState(CONFIGURED_USER_ID);
   const [taskName, setTaskName] = useCachedState("create:taskName", () => defaultThreadTitle());
   const [editingTaskName, setEditingTaskName] = useState(false);
@@ -333,6 +381,8 @@ export function CreatePage() {
   const richPromptRef = useRef(null);
   const promptRef = useRef(null);
   const canvasRef = useRef(null);
+  // 任务失败时只提示一次，轮询不会重复弹出同一条错误。
+  const failedAttemptRef = useRef("");
 
   async function reloadTaskThreads() {
       try {
@@ -343,31 +393,34 @@ export function CreatePage() {
           userId = (await me.json()).userId;
           setCurrentUserId(userId);
         }
-        const response = await fetch(`/gen_imgs/threads?userId=${encodeURIComponent(userId)}`);
+        const response = await fetch(`/gen_imgs/threads?page=0&size=10`);
         if (!response.ok) throw new Error("无法读取任务列表");
         const threads = await response.json();
-        const hydrated = await Promise.all(threads.map(async (thread) => {
-          const attemptsResponse = await fetch(`/gen_imgs/threads/${thread.id}/attempts`);
-          const attempts = attemptsResponse.ok ? await attemptsResponse.json() : [];
-          return mapThread({ ...thread, attempts });
-        }));
+        const hydrated = threads.map((thread) => mapThread({ ...thread, attempts: [] }));
         setTaskThreads(hydrated);
+        setThreadPage(0);
+        setThreadHasMore(threads.length === 10);
         // 刷新后恢复当前线程及所选 Attempt，避免回到“新任务”初始状态。
         const currentThread = hydrated.find((item) => item.id === threadId);
-        const currentAttempt = currentThread?.attempts.find((item) => item.id === attemptId)
-          || currentThread?.attempts.at(-1);
+        const currentAttempt = (currentThread?.attempts || []).find((item) => item.id === attemptId)
+          || (currentThread?.attempts || []).at(-1);
         if (currentThread && currentAttempt) {
-          setAttemptId(currentAttempt.id);
-          setPrompt(currentAttempt.prompt || "");
-          setDraft((current) => ({
-            ...current,
-            prompt: currentAttempt.prompt || "",
-            tags: currentAttempt.tags || [],
-            model: currentAttempt.modelName || current.model,
-            size: currentAttempt.size || current.size,
-            quality: currentAttempt.quality || current.quality,
-            references: currentThread.references || []
-          }));
+          const snapshotMatchesDraft = !attemptId
+            || (draft.prompt === (currentAttempt.prompt || "")
+              && sameTags(draft.tags, currentAttempt.tags));
+          if (snapshotMatchesDraft) {
+            setAttemptId(currentAttempt.id);
+            setPrompt(currentAttempt.prompt || "");
+            setDraft((current) => ({
+              ...current,
+              prompt: currentAttempt.prompt || "",
+              tags: currentAttempt.tags || [],
+              model: currentAttempt.modelName || current.model,
+              size: currentAttempt.size || current.size,
+              quality: currentAttempt.quality || current.quality,
+              references: currentThread.references || []
+            }));
+          }
           setStatus(currentAttempt.rawStatus === "succeeded" || currentAttempt.imageUrls.length
             ? "done"
             : currentAttempt.rawStatus === "failed" ? "failed" : "working");
@@ -419,46 +472,62 @@ export function CreatePage() {
   }, [prompt, files]);
 
   useEffect(() => {
-    // Thread 的最新 Attempt 进入终态后停止轮询，避免成功后继续请求。
-    if (!threadId || status === "done" || status === "failed") return undefined;
+    // 仅轮询当前选中的 Attempt，避免新任务回显旧 Attempt 的结果。
+    if (!threadId || !attemptId || status === "done" || status === "failed") return undefined;
     const poll = async () => {
       try {
         const response = await fetch(`/gen_imgs/threads/${threadId}`);
         if (!response.ok) throw new Error("无法读取任务状态");
         const thread = await response.json();
-        const latest = thread.attempts?.at(-1);
-        // 兼容 Java VO 的驼峰字段和网关透传的下划线字段，并优先展示最新一次成功尝试。
-        const completedAttempt = [...(thread.attempts || [])].reverse().find((attempt) => {
-          const attemptStatus = String(attempt.status || "").toLowerCase();
-          const urls = attempt.imageUrls || attempt.image_urls || [];
-          return attemptStatus === "succeeded" && urls.length;
-        });
-        const imageUrls = completedAttempt?.imageUrls || completedAttempt?.image_urls || latest?.imageUrls || latest?.image_urls || [];
-        const latestStatus = String(latest?.status || "pending").toLowerCase();
-        setStatus(latestStatus === "succeeded" ? "done" : latestStatus === "failed" ? "failed" : "working");
-        if (latestStatus === "failed" && latest?.error) setToast(`生成失败：${latest.error}`);
-        setTaskThreads((items) => items.map((item) => {
-          if (item.id !== threadId) return item;
-          const refreshedItem = mapThread(thread, item.title);
-          // 后端不同查询入口的排序可能不同；沿用当前 Attempt 顺序，避免卡片在轮询时跳动。
-          const previousIds = item.attempts.map((attempt) => attempt.id);
-          const order = new Map(previousIds.map((id, index) => [id, index]));
-          refreshedItem.attempts.sort((a, b) => (order.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(b.id) ?? Number.MAX_SAFE_INTEGER));
-          const previousLabels = new Map(item.attempts.map((attempt) => [attempt.id, attempt.label]));
-          let nextNumber = item.attempts.reduce((max, attempt) => Math.max(max, Number(String(attempt.label).replace("#", "")) || 0), 0) + 1;
-          refreshedItem.attempts.forEach((attempt) => { attempt.label = previousLabels.get(attempt.id) || `#${String(nextNumber++).padStart(2, "0")}`; });
-          return refreshedItem;
-        }));
-        if (imageUrls.length) {
-          const attemptNumber = completedAttempt?.attemptNo ?? completedAttempt?.attempt_no ?? thread.attempts?.length ?? 1;
-          setResults(imageUrls.map((url, index) => ({ id: `${threadId}-${index}`, image: url, title: `${mode} · ${index + 1}`, attemptNumber })));
-          // 结果落库后重新读取 Thread/Attempt，确保工作区缩略图立即拿到最新 URL。
-          await reloadTaskThreads();
+        const currentAttempt = (thread.attempts || []).find((item) => (
+          (item.attemptId || item.attempt_id || item.id) === attemptId
+        ));
+        if (!currentAttempt) return;
+
+        const imageUrls = currentAttempt.imageUrls || currentAttempt.image_urls || [];
+        const currentStatus = String(currentAttempt.status || "pending").toLowerCase();
+        const nextStatus = currentStatus === "succeeded"
+          ? "done"
+          : currentStatus === "failed" ? "failed" : "working";
+        setStatus(nextStatus);
+        if (currentStatus === "failed" && currentAttempt.error && failedAttemptRef.current !== attemptId) {
+          failedAttemptRef.current = attemptId;
+          setToast(`生成失败：${currentAttempt.error}`);
         }
+        setTaskThreads((items) => {
+          let changed = false;
+          const nextItems = items.map((item) => {
+            if (item.id !== threadId) return item;
+            // 状态接口只返回 Attempt，不一定携带 Thread 的参考图；保留本地已知的参考图。
+            const refreshedItem = mapThread({ ...thread, referenceImages: item.references }, item.title);
+            const previousAttempt = (item.attempts || []).find((attempt) => attempt.id === attemptId);
+            const refreshedAttempt = refreshedItem.attempts.find((attempt) => attempt.id === attemptId);
+            // 状态、结果和错误均未变化时保留原对象，避免工作区在每次轮询时重新渲染。
+            if (previousAttempt && refreshedAttempt
+              && previousAttempt.rawStatus === refreshedAttempt.rawStatus
+              && previousAttempt.error === refreshedAttempt.error
+              && JSON.stringify(previousAttempt.imageUrls) === JSON.stringify(refreshedAttempt.imageUrls)) {
+              return item;
+            }
+            changed = true;
+            return refreshedItem;
+          });
+          return changed ? nextItems : items;
+        });
+        const attemptNumber = currentAttempt.attemptNo ?? currentAttempt.attempt_no ?? 1;
+        const nextResults = imageUrls.map((url, index) => ({
+          id: `${attemptId}-${index}`,
+          image: url,
+          title: `${mode} · ${index + 1}`,
+          attemptNumber
+        }));
+        setResults((previous) => (
+          JSON.stringify(previous) === JSON.stringify(nextResults) ? previous : nextResults
+        ));
       } catch (error) { setToast(error.message); }
     };
     poll(); const timer = setInterval(poll, 1800); return () => clearInterval(timer);
-  }, [threadId, status]);
+  }, [attemptId, threadId, status]);
 
   useGSAP(() => { gsap.fromTo(".studio-grid > *", { y: 20, opacity: 0 }, { y: 0, opacity: 1, stagger: 0.09, duration: 0.75, ease: "power3.out" }); }, { scope: canvasRef });
 
@@ -467,6 +536,50 @@ export function CreatePage() {
     const element = event.currentTarget;
     element.style.height = "auto";
     element.style.height = `${Math.min(element.scrollHeight, 240)}px`;
+  }
+
+  async function loadMoreThreads() {
+    if (threadLoading || !threadHasMore || !currentUserId) return;
+    setThreadLoading(true);
+    try {
+      const nextPage = threadPage + 1;
+      const response = await fetch(`/gen_imgs/threads?page=${nextPage}&size=10`);
+      if (!response.ok) throw new Error("无法读取更多任务");
+      const rows = await response.json();
+      setTaskThreads((items) => [...items, ...rows.map((thread) => mapThread({ ...thread, attempts: [] }))]);
+      setThreadPage(nextPage);
+      setThreadHasMore(rows.length === 10);
+    } catch (error) { setToast(error.message); } finally { setThreadLoading(false); }
+  }
+
+  async function selectThread(item) {
+    setWorkspaceThreadId(item.id);
+    setThreadId(item.id);
+    setTaskName(item.title);
+    setEditingTaskName(false);
+    setWorkspaceView("results");
+    if ((item.attempts || []).length) return;
+    try {
+      const response = await fetch(`/gen_imgs/threads/${item.id}/attempts?page=0&size=10`);
+      if (!response.ok) throw new Error("无法读取执行记录");
+      const attempts = await response.json();
+      const mapped = mapThread({ ...item, attempts });
+      setTaskThreads((items) => items.map((current) => current.id === item.id ? mapped : current));
+      setAttemptPages((pages) => ({ ...pages, [item.id]: 0 }));
+      if (mapped.attempts.length) selectAttempt(mapped.attempts.at(-1), mapped);
+    } catch (error) { setToast(error.message); }
+  }
+
+  async function loadMoreAttempts(item) {
+    if (!item || !(item.attempts || []).length) return;
+    const page = (attemptPages[item.id] ?? 0) + 1;
+    const response = await fetch(`/gen_imgs/threads/${item.id}/attempts?page=${page}&size=10`);
+    if (!response.ok) return;
+    const rows = await response.json();
+    const mappedRows = mapThread({ ...item, attempts: rows }).attempts;
+    setTaskThreads((items) => items.map((current) => current.id === item.id
+      ? { ...current, attempts: [...(current.attempts || []), ...mappedRows].sort((a, b) => a.attemptNo - b.attemptNo) } : current));
+    setAttemptPages((pages) => ({ ...pages, [item.id]: page }));
   }
 
   function addReferences(fileList) {
@@ -511,33 +624,48 @@ export function CreatePage() {
   }
 
   async function startGeneration() {
-    // 创建 Thread；Java 服务会在其中创建首个 Attempt。
+    // 没有 Thread 才是首次创作；已有任务统一追加 Attempt，避免误建新 Thread。
     if (!prompt.trim() || !["idle", "failed", "done"].includes(status)) return;
     if (!currentUserId) { setToast("请先登录"); return; }
-    if (["failed", "done"].includes(status) && threadId) {
+    if (threadId && (status === "failed" || status === "done")) {
       await retryThread(threadId);
       return;
     }
     const spend = count * (mode === "批量出图" ? 24 : 12);
     if (credits < spend) { setToast("算力不足，请前往个人中心查看权益"); return; }
-    const generatedTitle = threadId ? taskName : defaultThreadTitle(taskThreads);
-    if (!threadId) setTaskName(generatedTitle);
+    const generatedTitle = defaultThreadTitle(taskThreads);
+    setTaskName(generatedTitle);
     const form = new FormData();
     // prompt 字段现在存放结构化提示词 JSON（system_prompt/user_prompt/references/tags_prompt），由后端解析。
     form.append("prompt", JSON.stringify(buildGenImgsPrompt(prompt.trim(), draftTags, additionalSystemPrompt, files)));
     form.append("n", String(count));
-    form.append("userId", currentUserId);
     form.append("title", generatedTitle);
     form.append("model", draft.model || "gpt-image-2"); form.append("size", normalizeSize(draft.size));
     // 生图服务只接受 auto、low、medium、high；界面“标准”对应 medium。
     form.append("quality", normalizeQuality(draft.quality)); form.append("outputFormat", "png");
     // multipart 表单字段使用 Java DTO 的属性名，避免 @ModelAttribute 无法绑定下划线字段。
     files.forEach(({ file, url }) => { if (file instanceof File) form.append("referenceImages", file); else if (url) form.append("referenceImageUrls", url); });
-    setStatus("queued"); setResults([]); setDraft({ ...draft, prompt, mode, additionalSystemPrompt }); setCredits(credits - spend);
+    // 主按钮总是开启新 Thread；先清空旧结果并展开工作区，避免请求期间展示旧任务。
+    failedAttemptRef.current = "";
+    setStatus("queued");
+    setResults([]);
+    setAttemptId("");
+    setThreadId("");
+    setWorkspaceThreadId("");
+    setWorkspaceView("results");
+    setWorkspaceOpen(true);
+    setDraft({ ...draft, prompt, mode, additionalSystemPrompt });
+    setCredits(credits - spend);
     try {
       const response = await fetch("/gen_imgs/threads", { method: "POST", body: form });
       if (!response.ok) throw new Error("创建生成任务失败");
-      const thread = await response.json(); setThreadId(thread.threadId); setTaskThreads((items) => [mapThread(thread, taskName.trim() || defaultThreadTitle(items)), ...items]); setWorkspaceView("tasks"); setWorkspaceOpen(true);
+      const thread = await response.json();
+      const newThread = mapThread(thread, generatedTitle);
+      const newAttempt = newThread.attempts.at(-1);
+      setThreadId(newThread.id);
+      setWorkspaceThreadId(newThread.id);
+      setAttemptId(newAttempt?.id || "");
+      setTaskThreads((items) => [newThread, ...items]);
     } catch (error) { setStatus("failed"); setToast(error.message); }
   }
 
@@ -547,14 +675,40 @@ export function CreatePage() {
     // prompt 字段现在存放结构化提示词 JSON（system_prompt/user_prompt/references/tags_prompt），由后端解析。
     form.append("prompt", JSON.stringify(buildGenImgsPrompt(prompt.trim(), draftTags, additionalSystemPrompt, files)));
     form.append("n", String(count));
-    form.append("userId", currentUserId);
     form.append("model", draft.model || "gpt-image-2"); form.append("size", normalizeSize(draft.size));
     // 重试请求使用与首次生成相同的质量参数映射。
     form.append("quality", normalizeQuality(draft.quality)); form.append("outputFormat", "png");
-    // 重试时优先提交已有的 OSS URL；字段名与 GenerateImageDTO 保持一致。
-    files.forEach(({ file, url }) => { if (file instanceof File) form.append("referenceImages", file); else if (url) form.append("referenceImageUrls", url); });
-    setThreadId(id); setResults([]); setStatus("queued");
-    try { const response = await fetch(`/gen_imgs/threads/${id}/attempts`, { method: "POST", body: form }); if (!response.ok) throw new Error("重试失败"); const thread = await response.json(); setTaskThreads((items) => items.map((item) => item.id === id ? mapThread(thread, item.title) : item)); } catch (error) { setStatus("failed"); setToast(error.message); }
+    const selectedThread = taskThreads.find((item) => item.id === id);
+    const latestAttempt = selectedThread?.attempts?.at(-1);
+    // 失败时本地文件可能尚未上传，保留文件资源；成功后只复用已落库的 OSS URL。
+    if (latestAttempt?.rawStatus === "succeeded") {
+      (selectedThread.references || []).forEach((reference) => {
+        const url = reference?.url || reference?.objectKey || reference;
+        if (url) form.append("referenceImageUrls", url);
+      });
+    } else {
+      files.forEach(({ file, url }) => {
+        if (file instanceof File) form.append("referenceImages", file);
+        else if (url) form.append("referenceImageUrls", url);
+      });
+    }
+    failedAttemptRef.current = "";
+    setThreadId(id); setWorkspaceThreadId(id); setWorkspaceView("results"); setWorkspaceOpen(true);
+    setResults([]); setStatus("queued");
+    try {
+      const response = await fetch(`/gen_imgs/threads/${id}/attempts`, {
+        method: "POST",
+        body: form
+      });
+      if (!response.ok) throw new Error("重试失败");
+      const thread = await response.json();
+      const existingThread = taskThreads.find((item) => item.id === id);
+      const refreshedThread = mapThread({ ...thread, referenceImages: existingThread?.references || [] }, existingThread?.title);
+      const latestAttempt = refreshedThread.attempts.at(-1);
+      setTaskThreads((items) => items.map((item) => item.id === id ? refreshedThread : item));
+      // 重试成功后立即切换到新 Attempt，避免继续展示旧 Attempt 的结果。
+      if (latestAttempt) selectAttempt(latestAttempt, refreshedThread);
+    } catch (error) { setStatus("failed"); setToast(error.message); }
   }
 
   function startNewCreation() {
@@ -636,6 +790,7 @@ export function CreatePage() {
 
   // 选择历史 Attempt 时同步恢复创作参数、标签、参考图和结果。
   function selectAttempt(attempt, selectedThread) {
+    if (!attempt || !selectedThread) return;
     const restoredReferences = (selectedThread.references || []).map((reference, index) => ({
       id: `stored-ref-${index}`,
       url: reference.url || reference.objectKey || reference,
@@ -698,7 +853,7 @@ export function CreatePage() {
           <div className="canvas-tag-bar">
             {tagChips.length
               ? <>
-                {tagChips.slice(0, tagsCollapsed ? 3 : tagChips.length).map((segments, index) => <span className={`canvas-tag tone-${index % 4}`} key={index}>{segments.map((segment, part) => segment.type === "ref"
+                {tagChips.slice(0, tagsCollapsed ? 3 : tagChips.length).map((chip, index) => <span className={`canvas-tag tone-${index % 4}`} key={index} title={chip.fullText} aria-label={chip.fullText}>{chip.segments.map((segment, part) => segment.type === "ref"
                   ? <span className="tag-ref-chip" key={part}>{segment.text}</span>
                   : <span key={part}>{segment.text}</span>)}</span>)}
                 {tagsCollapsed && tagChips.length > 3 && <span className="canvas-tag tone-more">+{tagChips.length - 3}</span>}
@@ -720,20 +875,15 @@ export function CreatePage() {
       onViewChange={setWorkspaceView}
       threads={taskThreads}
       thread={taskThreads.find((item) => item.id === workspaceThreadId)
-        || taskThreads.find((item) => item.id === threadId)
-        || taskThreads[0]}
+        || taskThreads.find((item) => item.id === threadId)}
       width={workspaceWidth}
       onResize={setWorkspaceWidth}
       onClose={() => setWorkspaceOpen(false)}
       onRetry={retryThread}
       onEditThread={(item) => setThreadEdit({ id: item.id, title: item.title })}
-      onSelectThread={(item) => {
-        setWorkspaceThreadId(item.id);
-        setThreadId(item.id);
-        setTaskName(item.title);
-        setEditingTaskName(false);
-        setWorkspaceView("results");
-      }}
+      onSelectThread={selectThread}
+      onLoadMoreThreads={loadMoreThreads}
+      onLoadMoreAttempts={loadMoreAttempts}
       onSelectAttempt={selectAttempt}
     />}
     {threadEdit && <Modal title="修改任务名称" onClose={() => setThreadEdit(null)}><div className="template-form"><label>任务名称<input autoFocus maxLength="40" value={threadEdit.title} onChange={(event) => setThreadEdit({ ...threadEdit, title: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.closest("form")?.requestSubmit(); }} /></label><button type="button" className="primary-action" disabled={!threadEdit.title.trim()} onClick={async () => { try { const response = await fetch(`/gen_imgs/threads/${threadEdit.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: threadEdit.title.trim() }) }); if (!response.ok) throw new Error("任务名称修改失败"); setTaskThreads((items) => items.map((item) => item.id === threadEdit.id ? { ...item, title: threadEdit.title.trim() } : item)); if (workspaceThreadId === threadEdit.id) setTaskName(threadEdit.title.trim()); setThreadEdit(null); setToast("任务名称已更新"); } catch (error) { setToast(error.message); } }}>保存</button></div></Modal>}
@@ -760,22 +910,29 @@ function AdvancedPromptModal({ value, basePrompt, onChange, onClose, onSave }) {
   return <Modal title="高级参数" onClose={onClose}><div className="advanced-prompt-form"><label><span>原始系统提示词</span><textarea value={basePrompt} readOnly /></label><label><span>追加系统提示词</span><textarea autoFocus value={value} onChange={(event) => onChange(event.target.value)} placeholder="例如：画面保持极简构图，使用柔和自然光。" /></label><p>你填写的内容会追加到原始系统提示词之后，不会覆盖原提示词。</p><button className="primary-action" onClick={onSave}>保存设置</button></div></Modal>;
 }
 
-function UnifiedWorkspace({ view, onViewChange, threads, thread, width, onResize, onClose, onRetry, onEditThread, onSelectThread, onSelectAttempt }) {
-  return <aside className="unified-rail" style={{ width }} aria-label="工作区"><div className="unified-resizer" onPointerDown={(event) => { const start = event.clientX; const initial = width; const move = (e) => onResize(Math.max(280, Math.min(560, initial + start - e.clientX))); const stop = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", stop); }} /><header className="unified-header">{view === "results" && <button className="workspace-back icon-only" type="button" onClick={() => onViewChange("tasks")} aria-label="返回任务" title="返回任务"><ArrowRight size={15} /></button>}<div className="workspace-heading"><span>WORKSPACE</span><h2>工作区</h2></div><button className="workspace-close" type="button" onClick={onClose} title="关闭工作区"><X size={18} /></button></header><div className="unified-content">{view === "tasks" ? <TaskDrawer embedded threads={threads} onClose={onClose} onRetry={onRetry} onEditThread={onEditThread} onSelectThread={onSelectThread} /> : <AttemptDrawer embedded thread={thread} onClose={onClose} onRetry={onRetry} onSelectAttempt={(attempt) => onSelectAttempt?.(attempt, thread)} />}</div></aside>;
+function UnifiedWorkspace({ view, onViewChange, threads, thread, width, onResize, onClose, onRetry, onEditThread, onSelectThread, onSelectAttempt, onLoadMoreThreads, onLoadMoreAttempts }) {
+  return <aside className="unified-rail" style={{ width }} aria-label="工作区"><div className="unified-resizer" onPointerDown={(event) => { const start = event.clientX; const initial = width; const move = (e) => onResize(Math.max(280, Math.min(560, initial + start - e.clientX))); const stop = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", stop); }} /><header className="unified-header">{view === "results" && <button className="workspace-back icon-only" type="button" onClick={() => onViewChange("tasks")} aria-label="返回任务" title="返回任务"><ArrowRight size={15} /></button>}<div className="workspace-heading"><span>WORKSPACE</span><h2>工作区</h2></div><button className="workspace-close" type="button" onClick={onClose} title="关闭工作区"><X size={18} /></button></header><div className="unified-content">{view === "tasks" ? <TaskDrawer embedded threads={threads} onClose={onClose} onRetry={onRetry} onEditThread={onEditThread} onSelectThread={onSelectThread} onSelectAttempt={onSelectAttempt} onLoadMoreThreads={onLoadMoreThreads} onLoadMoreAttempts={onLoadMoreAttempts} /> : <AttemptDrawer embedded thread={thread} onClose={onClose} onRetry={onRetry} onSelectAttempt={(attempt) => onSelectAttempt?.(attempt, thread)} />}</div></aside>;
 }
 
-function TaskDrawer({ threads, width, onResize, onClose, onEditThread, onSelectThread, embedded = false }) {
-  const [expanded, setExpanded] = useState(threads[0]?.id);
-  const [selectedAttempt, setSelectedAttempt] = useState(threads[0]?.attempts.at(-1)?.id);
-  const selectedThread = threads.find((thread) => thread.id === expanded) || threads[0];
-  const attempt = selectedThread?.attempts.find((item) => item.id === selectedAttempt) || selectedThread?.attempts.at(-1);
-  useEffect(() => { if (threads[0]?.id) { setExpanded(threads[0].id); setSelectedAttempt(threads[0].attempts.at(-1)?.id); } }, [threads]);
-  return <aside className={`task-drawer ${embedded ? "embedded-drawer" : "task-rail"}`} style={embedded ? undefined : { width }} aria-label="生成任务">{!embedded && <div className="rail-resizer" onPointerDown={(event) => { const start = event.clientX; const initial = width; const move = (e) => onResize(Math.max(220, Math.min(520, initial + e.clientX - start))); const stop = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", stop); }} />}<div className="task-drawer-body"><nav className="thread-list" aria-label="Thread 列表">{threads.length ? threads.map((thread) => <div className={`thread-card ${thread.id === selectedThread?.id ? "selected" : ""}`} key={thread.id}><button className="thread-card-main" type="button" onClick={() => { setExpanded(thread.id); setSelectedAttempt(thread.attempts.at(-1)?.id); onSelectThread?.(thread); }}><span className="thread-icon">{thread.thumbnail ? <img src={thread.thumbnail} alt="" /> : <Layers3 size={15} />}</span><span className="thread-info"><b>{thread.title}</b><small>{thread.createdAt}</small></span><span className={`thread-status status-${thread.status}`}>{thread.status}</span></button><button className="thread-edit" type="button" title="修改任务名称" aria-label={`修改任务名称：${thread.title}`} onClick={(event) => { event.stopPropagation(); onEditThread?.(thread); }}><Pencil size={14} /></button></div>) : <div className="empty-task-state"><Layers3 size={18} /><strong>还没有任务</strong><span>完成一次创作后，任务会显示在这里。</span></div>}</nav>{selectedThread && <section className="attempt-detail"><div className="detail-kicker">{selectedThread.title}</div><h3>{attempt?.label}</h3><p className="detail-status">{attempt?.status}</p><div className="detail-progress"><span style={{ width: `${attempt?.progress || 0}%` }} /></div><dl><div><dt>提示词</dt><dd>{getPromptExcerpt(selectedThread.title, 80)}</dd></div><div><dt>模型</dt><dd>gpt-image-2</dd></div><div><dt>创建时间</dt><dd>{selectedThread.createdAt}</dd></div></dl><div className="attempt-history"><span>执行记录</span>{selectedThread.attempts.map((item) => <button className={item.id === attempt?.id ? "active" : ""} key={item.id} type="button" onClick={() => setSelectedAttempt(item.id)}><b>{item.label}</b><em>{item.status}</em></button>)}</div><button className="retry-button" type="button" onClick={() => onRetry(selectedThread.id)}><RotateCw size={13} />重试</button></section>}</div></aside>;
+function TaskDrawer({ threads, width, onResize, onClose, onRetry, onEditThread, onSelectThread, onSelectAttempt, onLoadMoreThreads, onLoadMoreAttempts, embedded = false }) {
+  const safeThreads = (threads || []).map((thread) => ({ ...thread, attempts: thread.attempts || [] }));
+  const [expanded, setExpanded] = useState(safeThreads[0]?.id);
+  const [selectedAttempt, setSelectedAttempt] = useState(safeThreads[0]?.attempts.at(-1)?.id);
+  const selectedThread = safeThreads.find((thread) => thread.id === expanded) || safeThreads[0];
+  const attempt = (selectedThread?.attempts || []).find((item) => item.id === selectedAttempt)
+    || (selectedThread?.attempts || []).at(-1);
+  useEffect(() => {
+    if (safeThreads[0]?.id) {
+      setExpanded(safeThreads[0].id);
+      setSelectedAttempt(safeThreads[0].attempts.at(-1)?.id);
+    }
+  }, [threads]);
+  return <aside className={`task-drawer ${embedded ? "embedded-drawer" : "task-rail"}`} style={embedded ? undefined : { width }} aria-label="生成任务">{!embedded && <div className="rail-resizer" onPointerDown={(event) => { const start = event.clientX; const initial = width; const move = (e) => onResize(Math.max(220, Math.min(520, initial + e.clientX - start))); const stop = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", stop); }} />}<div className="task-drawer-body"><nav className="thread-list" aria-label="Thread 列表" onScroll={(event) => { const target = event.currentTarget; if (target.scrollTop + target.clientHeight >= target.scrollHeight - 24) onLoadMoreThreads?.(); }}>{safeThreads.length ? safeThreads.map((thread) => <div className={`thread-card ${thread.id === selectedThread?.id ? "selected" : ""}`} key={thread.id}><button className="thread-card-main" type="button" onClick={() => { setExpanded(thread.id); setSelectedAttempt(thread.attempts.at(-1)?.id); onSelectThread?.(thread); }}><span className="thread-icon">{thread.thumbnail ? <img src={thread.thumbnail} alt="" /> : <Layers3 size={15} />}</span><span className="thread-info"><b>{thread.title}</b><small>{thread.createdAt}</small></span><span className={`thread-status status-${thread.status}`}>{thread.status}</span></button><button className="thread-edit" type="button" title="修改任务名称" aria-label={`修改任务名称：${thread.title}`} onClick={(event) => { event.stopPropagation(); onEditThread?.(thread); }}><Pencil size={14} /></button></div>) : <div className="empty-task-state"><Layers3 size={18} /><strong>还没有任务</strong><span>完成一次创作后，任务会显示在这里。</span></div>}</nav>{selectedThread && <section className="attempt-detail" onScroll={(event) => { const target = event.currentTarget; if (target.scrollTop + target.clientHeight >= target.scrollHeight - 24) onLoadMoreAttempts?.(selectedThread); }}><div className="detail-kicker">{selectedThread.title}</div><h3>{attempt?.label}</h3><p className="detail-status">{attempt?.status}</p><div className="detail-progress"><span style={{ width: `${attempt?.progress || 0}%` }} /></div><dl><div><dt>提示词</dt><dd>{getPromptExcerpt(attempt?.prompt, 80)}</dd></div><div><dt>模型</dt><dd>{attempt?.modelName || "gpt-image-2"}</dd></div><div><dt>创建时间</dt><dd>{selectedThread.createdAt}</dd></div></dl><div className="attempt-history"><span>执行记录</span>{selectedThread.attempts.map((item) => <button className={item.id === attempt?.id ? "active" : ""} key={item.id} type="button" onClick={() => { setSelectedAttempt(item.id); onSelectAttempt?.(item, selectedThread); }}><b>{item.label}</b><em>{item.status}</em></button>)}</div><button className="retry-button" type="button" onClick={() => onRetry(selectedThread.id)}><RotateCw size={13} />重试</button></section>}</div></aside>;
 }
 
 function AttemptDrawer({ thread, width, onResize, onClose, onRetry, onSelectAttempt, embedded = false }) {
   if (!thread) return null;
-  return <aside className={`attempt-rail task-drawer ${embedded ? "embedded-drawer" : ""}`} style={embedded ? undefined : { width }} aria-label="Attempt 结果">{!embedded && <div className="rail-resizer rail-resizer-left" onPointerDown={(event) => { const start = event.clientX; const initial = width; const move = (e) => onResize(Math.max(240, Math.min(520, initial + start - e.clientX))); const stop = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", stop); }} />}<div className="attempt-rail-body"><p className="detail-kicker">{thread.title}</p>{thread.attempts.map((attempt) => <button className="attempt-rail-item" type="button" key={attempt.id} onClick={() => onSelectAttempt?.(attempt)}><div><b>{attempt.label}</b><span>{attempt.status}</span></div>{attempt.imageUrls?.[0] && <img src={attempt.imageUrls[0]} alt="结果缩略图" />}</button>)}</div></aside>;
+  return <aside className={`attempt-rail task-drawer ${embedded ? "embedded-drawer" : ""}`} style={embedded ? undefined : { width }} aria-label="Attempt 结果">{!embedded && <div className="rail-resizer rail-resizer-left" onPointerDown={(event) => { const start = event.clientX; const initial = width; const move = (e) => onResize(Math.max(240, Math.min(520, initial + start - e.clientX))); const stop = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", stop); }} />}<div className="attempt-rail-body"><p className="detail-kicker">{thread.title}</p>{(thread.attempts || []).map((attempt) => <button className="attempt-rail-item" type="button" key={attempt.id} onClick={() => onSelectAttempt?.(attempt)}><div><b>{attempt.label}</b><span>{attempt.status}</span></div>{attempt.imageUrls?.[0] && <img src={attempt.imageUrls[0]} alt="结果缩略图" />}</button>)}</div></aside>;
 }
 
 function PromptFullscreen({ value, files, onChange, onClose }) {
@@ -855,8 +1012,8 @@ function PromptFullscreen({ value, files, onChange, onClose }) {
 }
 
 function getPromptExcerpt(prompt, maxLength = 96) {
-  // 将可能很长的提示词压缩为卡片列表适用的一段摘要。
-  const normalized = prompt.replace(/\s+/g, " ").trim();
+  // 将可能很长的提示词压缩为卡片列表适用的一段摘要；空值时返回空字符串避免报错。
+  const normalized = (prompt || "").replace(/\s+/g, " ").trim();
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}…` : normalized;
 }
 

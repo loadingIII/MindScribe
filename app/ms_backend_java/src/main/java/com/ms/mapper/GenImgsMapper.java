@@ -23,8 +23,8 @@ public interface GenImgsMapper {
     @Select("SELECT " + THREAD_COLUMNS + " FROM threads WHERE id = #{id}")
     ThreadEntity findThread(@Param("id") String id);
 
-    @Select("SELECT " + THREAD_COLUMNS + " FROM threads WHERE user_id = #{userId} ORDER BY updated_at DESC")
-    List<ThreadEntity> findThreadsByUser(@Param("userId") String userId);
+    @Select("SELECT " + THREAD_COLUMNS + " FROM threads WHERE user_id = #{userId} ORDER BY created_at DESC LIMIT #{limit} OFFSET #{offset}")
+    List<ThreadEntity> findThreadsByUser(@Param("userId") String userId, @Param("limit") int limit, @Param("offset") int offset);
 
     int updateThread(ThreadEntity thread);
 
@@ -41,8 +41,8 @@ public interface GenImgsMapper {
     @Select("SELECT " + ATTEMPT_COLUMNS + " FROM attempts WHERE id = #{id}")
     AttemptEntity findAttempt(@Param("id") String id);
 
-    @Select("SELECT " + ATTEMPT_COLUMNS + " FROM attempts WHERE thread_id = #{threadId} ORDER BY attempt_no DESC")
-    List<AttemptEntity> findAttemptsByThread(@Param("threadId") String threadId);
+    @Select("SELECT " + ATTEMPT_COLUMNS + " FROM attempts WHERE thread_id = #{threadId} ORDER BY attempt_no DESC LIMIT #{limit} OFFSET #{offset}")
+    List<AttemptEntity> findAttemptsByThread(@Param("threadId") String threadId, @Param("limit") int limit, @Param("offset") int offset);
 
     int updateAttempt(AttemptEntity attempt);
 }

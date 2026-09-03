@@ -40,6 +40,12 @@ public class HttpClientUtil {
         return send(HttpRequest.newBuilder(URI.create(url)).timeout(readTimeout).GET().build());
     }
 
+    /** 查询可短暂消失的后台任务时允许 404，由业务层决定如何降级。 */
+    public HttpResponse<String> getAllowNotFound(String url) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url)).timeout(readTimeout).GET().build();
+        return client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
+
     /**
      * 发起 multipart/form-data POST 请求。
      * Part 可表示普通文本字段，也可表示二进制文件字段。

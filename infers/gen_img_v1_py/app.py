@@ -22,7 +22,8 @@ async def create_generation_task(
     # prompt 为前端组装的结构化提示词 JSON（system_prompt/user_prompt/tags_prompt），
     # 也兼容旧的纯文本提示词；JSON 含系统提示词与标签，放宽长度上限。
     prompt: str = Form(..., min_length=1, max_length=10000),
-    reference_image_urls: list[str] = Form(...),
+    # 参考图是可选的；无图时由模型执行文生图。
+    reference_image_urls: list[str] | None = Form(None),
     model: str | None = Form(None),
     size: str | None = Form(None),
     quality: str | None = Form(None),
@@ -30,8 +31,7 @@ async def create_generation_task(
     n: int | None = Form(None),
 ) -> CreateTaskResponse:
     """接收前端表单请求，创建并提交后台图片生成任务。"""
-    if not reference_image_urls:
-        raise HTTPException(status_code=422, detail="至少需要一张参考图")
+    reference_image_urls = [url for url in (reference_image_urls or []) if url.strip()]
     try:
         options = image_generation_service.options_from_request(model, size, quality, output_format, n)
     except ValidationError as exc:

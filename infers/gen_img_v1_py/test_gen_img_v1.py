@@ -186,3 +186,19 @@ def test_api_creates_task_and_forwards_prompt(monkeypatch) -> None:
 
     response = client.get("/tasks/unknown")
     assert response.status_code == 404
+
+
+def test_api_allows_generation_without_reference_images(monkeypatch) -> None:
+    """无参考图时接口仍应创建文生图任务。"""
+    captured: list[list[str]] = []
+
+    async def fake_run_task(task_id, prompt, images, options) -> None:
+        """记录无图请求传入的空参考图列表。"""
+        captured.append(images)
+
+    monkeypatch.setattr(api_module.image_generation_service, "run_task", fake_run_task)
+    client = TestClient(api_module.app)
+    response = client.post("/generate", data={"prompt": "纯文本创作"})
+
+    assert response.status_code == 202
+    assert captured == [[]]

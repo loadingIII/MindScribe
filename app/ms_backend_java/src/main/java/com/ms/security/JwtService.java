@@ -35,6 +35,9 @@ public class JwtService {
     /** 返回浏览器保存 JWT 的 Cookie 名称。 */
     public String cookieName() { return cookieName; }
 
+    /** 返回 JWT 与认证 Cookie 共用的有效期（秒）。 */
+    public long expirationSeconds() { return expirationSeconds; }
+
     /** 根据用户身份创建带有效期和签发方的 JWT。 */
     public String create(String userId, String email, String role) {
         Date now = new Date();
