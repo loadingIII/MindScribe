@@ -375,7 +375,7 @@ export function CreatePage() {
           userId = (await me.json()).userId;
           setCurrentUserId(userId);
         }
-        const response = await fetch(`/gen_imgs/threads?userId=${encodeURIComponent(userId)}`);
+        const response = await fetch("/gen_imgs/threads");
         if (!response.ok) throw new Error("无法读取任务列表");
         const threads = await response.json();
         const hydrated = await Promise.all(threads.map(async (thread) => {
@@ -563,9 +563,13 @@ export function CreatePage() {
   }
 
   async function startGeneration() {
-    // 创建 Thread；Java 服务会在其中创建首个 Attempt。
+    // 没有 Thread 才是首次创作；已有任务统一追加 Attempt，避免误建新 Thread。
     if (!prompt.trim() || !["idle", "failed", "done"].includes(status)) return;
     if (!currentUserId) { setToast("请先登录"); return; }
+    if (threadId && (status === "failed" || status === "done")) {
+      await retryThread(threadId);
+      return;
+    }
     const spend = count * (mode === "批量出图" ? 24 : 12);
     if (credits < spend) { setToast("算力不足，请前往个人中心查看权益"); return; }
     const generatedTitle = defaultThreadTitle(taskThreads);
@@ -574,7 +578,6 @@ export function CreatePage() {
     // prompt 字段现在存放结构化提示词 JSON（system_prompt/user_prompt/references/tags_prompt），由后端解析。
     form.append("prompt", JSON.stringify(buildGenImgsPrompt(prompt.trim(), draftTags, additionalSystemPrompt, files)));
     form.append("n", String(count));
-    form.append("userId", currentUserId);
     form.append("title", generatedTitle);
     form.append("model", draft.model || "gpt-image-2"); form.append("size", normalizeSize(draft.size));
     // 生图服务只接受 auto、low、medium、high；界面“标准”对应 medium。
@@ -611,14 +614,26 @@ export function CreatePage() {
     // prompt 字段现在存放结构化提示词 JSON（system_prompt/user_prompt/references/tags_prompt），由后端解析。
     form.append("prompt", JSON.stringify(buildGenImgsPrompt(prompt.trim(), draftTags, additionalSystemPrompt, files)));
     form.append("n", String(count));
-    form.append("userId", currentUserId);
     form.append("model", draft.model || "gpt-image-2"); form.append("size", normalizeSize(draft.size));
     // 重试请求使用与首次生成相同的质量参数映射。
     form.append("quality", normalizeQuality(draft.quality)); form.append("outputFormat", "png");
-    // 重试时优先提交已有的 OSS URL；字段名与 GenerateImageDTO 保持一致。
-    files.forEach(({ file, url }) => { if (file instanceof File) form.append("referenceImages", file); else if (url) form.append("referenceImageUrls", url); });
+    const selectedThread = taskThreads.find((item) => item.id === id);
+    const latestAttempt = selectedThread?.attempts?.at(-1);
+    // 失败时本地文件可能尚未上传，保留文件资源；成功后只复用已落库的 OSS URL。
+    if (latestAttempt?.rawStatus === "succeeded") {
+      (selectedThread.references || []).forEach((reference) => {
+        const url = reference?.url || reference?.objectKey || reference;
+        if (url) form.append("referenceImageUrls", url);
+      });
+    } else {
+      files.forEach(({ file, url }) => {
+        if (file instanceof File) form.append("referenceImages", file);
+        else if (url) form.append("referenceImageUrls", url);
+      });
+    }
     failedAttemptRef.current = "";
-    setThreadId(id); setWorkspaceThreadId(id); setResults([]); setStatus("queued");
+    setThreadId(id); setWorkspaceThreadId(id); setWorkspaceView("results"); setWorkspaceOpen(true);
+    setResults([]); setStatus("queued");
     try {
       const response = await fetch(`/gen_imgs/threads/${id}/attempts`, {
         method: "POST",
@@ -628,7 +643,7 @@ export function CreatePage() {
       const thread = await response.json();
       setTaskThreads((items) => items.map((item) => {
         if (item.id !== id) return item;
-        const refreshedThread = mapThread(thread, item.title);
+        const refreshedThread = mapThread({ ...thread, referenceImages: item.references }, item.title);
         const latestAttempt = refreshedThread.attempts.at(-1);
         // 新 Attempt 创建后立即选中它，后续轮询不会把编辑器回填为旧 Attempt。
         if (latestAttempt) setAttemptId(latestAttempt.id);
@@ -843,7 +858,7 @@ function UnifiedWorkspace({ view, onViewChange, threads, thread, width, onResize
   return <aside className="unified-rail" style={{ width }} aria-label="工作区"><div className="unified-resizer" onPointerDown={(event) => { const start = event.clientX; const initial = width; const move = (e) => onResize(Math.max(280, Math.min(560, initial + start - e.clientX))); const stop = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", stop); }; window.addEventListener("pointermove", move); window.addEventListener("pointerup", stop); }} /><header className="unified-header">{view === "results" && <button className="workspace-back icon-only" type="button" onClick={() => onViewChange("tasks")} aria-label="返回任务" title="返回任务"><ArrowRight size={15} /></button>}<div className="workspace-heading"><span>WORKSPACE</span><h2>工作区</h2></div><button className="workspace-close" type="button" onClick={onClose} title="关闭工作区"><X size={18} /></button></header><div className="unified-content">{view === "tasks" ? <TaskDrawer embedded threads={threads} onClose={onClose} onRetry={onRetry} onEditThread={onEditThread} onSelectThread={onSelectThread} onSelectAttempt={onSelectAttempt} /> : <AttemptDrawer embedded thread={thread} onClose={onClose} onRetry={onRetry} onSelectAttempt={(attempt) => onSelectAttempt?.(attempt, thread)} />}</div></aside>;
 }
 
-function TaskDrawer({ threads, width, onResize, onClose, onEditThread, onSelectThread, onSelectAttempt, embedded = false }) {
+function TaskDrawer({ threads, width, onResize, onClose, onRetry, onEditThread, onSelectThread, onSelectAttempt, embedded = false }) {
   const [expanded, setExpanded] = useState(threads[0]?.id);
   const [selectedAttempt, setSelectedAttempt] = useState(threads[0]?.attempts.at(-1)?.id);
   const selectedThread = threads.find((thread) => thread.id === expanded) || threads[0];

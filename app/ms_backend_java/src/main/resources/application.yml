@@ -47,3 +47,8 @@ spring.data.redis:
   port: ${REDIS_PORT:6379}
   password: ${REDIS_PASSWORD:}
   database: ${REDIS_DATABASE:0}
+
+# 日志级别
+logging:
+  level:
+    com.ms: DEBUG

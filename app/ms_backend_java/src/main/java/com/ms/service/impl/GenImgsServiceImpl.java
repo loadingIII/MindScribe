@@ -27,7 +27,9 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import java.util.Collections;
+import java.util.Set;
+import java.util.concurrent.ConcurrentSkipListSet;
 
 /** 图片生成业务：负责 DTO 转换、任务提交及结果反序列化。 */
 @Service
@@ -42,17 +44,16 @@ public class GenImgsServiceImpl implements GenImgsService {
     private final String serviceUrl;
     private final OssStorageUtil oss;
     private final GenImgsMapper dbMapper;
-    private final StringRedisTemplate redis;
     private final Map<String, List<AttemptVO>> threads = new ConcurrentHashMap<>();
+    private final Set<String> missingPythonTasks = new ConcurrentSkipListSet<>();
 
-    public GenImgsServiceImpl(HttpClientUtil http, ObjectMapper mapper, OssStorageUtil oss, GenImgsMapper genImgsMapper, StringRedisTemplate redis,
+    public GenImgsServiceImpl(HttpClientUtil http, ObjectMapper mapper, OssStorageUtil oss, GenImgsMapper genImgsMapper,
                               @Value("${image-generation.base-url}") String host,
                               @Value("${image-generation.port}") int port) {
         this.http = http;
         this.mapper = mapper;
         this.oss = oss;
         this.dbMapper = genImgsMapper;
-        this.redis = redis;
         this.serviceUrl = host.replaceAll("/$", "") + ":" + port;
     }
 
@@ -91,7 +92,14 @@ public class GenImgsServiceImpl implements GenImgsService {
     /** 查询单个 Python 任务。 */
     private TaskVO getTask(String taskId) throws IOException, InterruptedException {
         log.debug("查询远程图片任务，taskId={}", taskId);
-        return mapper.readValue(http.get(serviceUrl + "/tasks/" + taskId).body(), TaskVO.class);
+        var response = http.getAllowNotFound(serviceUrl + "/tasks/" + taskId);
+        if (response.statusCode() == 404) {
+            return null;
+        }
+        if (response.statusCode() >= 400) {
+            throw new IOException("图片生成服务返回 HTTP " + response.statusCode() + ": " + response.body());
+        }
+        return mapper.readValue(response.body(), TaskVO.class);
     }
 
     /** 创建 Thread，并记录首个 Attempt。 */
@@ -103,7 +111,6 @@ public class GenImgsServiceImpl implements GenImgsService {
         ThreadEntity thread = toThread(threadId, userId, request, referenceUrls);
         dbMapper.insertThread(thread);
         dbMapper.insertAttempt(toAttempt(attempt, request, threadId, 1));
-        saveAttemptSnapshot(threadId, attempt);
         List<AttemptVO> attempts = new ArrayList<>();
         attempts.add(attempt);
         threads.put(threadId, attempts);
@@ -112,39 +119,93 @@ public class GenImgsServiceImpl implements GenImgsService {
     }
 
     /** 重试时追加 Attempt，保留历史尝试。 */
-    public ThreadVO retry(String threadId, GenerateImageDTO request) throws IOException, InterruptedException {
-        List<AttemptVO> attempts = threads.get(threadId);
-        if (attempts == null) {
+    public ThreadVO retry(String userId, String threadId, GenerateImageDTO request) throws IOException, InterruptedException {
+        requireThreadOwner(userId, threadId);
+        // 每次重试都从 MySQL 读取历史，避免进程内缓存成为业务状态来源。
+        List<AttemptEntity> stored = dbMapper.findAttemptsByThread(threadId);
+        if (stored == null || stored.isEmpty()) {
             log.warn("重试失败，线程不存在，threadId={}", threadId);
             throw new IllegalArgumentException("Thread 不存在: " + threadId);
         }
-        attempts.add(submitAttempt(request, new ArrayList<>()));
+        List<AttemptVO> attempts = new ArrayList<>();
+        for (AttemptEntity item : stored) attempts.add(toAttemptVO(item, parseResultUrls(item.getResults())));
+        Collections.reverse(attempts);
+        List<String> referenceUrls = new ArrayList<>();
+        attempts.add(submitAttempt(request, referenceUrls));
         AttemptVO attempt = attempts.get(attempts.size() - 1);
         ThreadEntity thread = dbMapper.findThread(threadId);
         int attemptNo = thread == null ? attempts.size() : thread.getAttemptCount() + 1;
         dbMapper.insertAttempt(toAttempt(attempt, request, threadId, attemptNo));
-        saveAttemptSnapshot(threadId, attempt);
-        if (thread != null) { thread.setStatus("pending"); thread.setAttemptCount(attemptNo); dbMapper.updateThread(thread); }
+        if (thread != null) {
+            // 失败重试上传的新参考图需要写回 Thread，后续成功重试才能只复用 URL。
+            if (!referenceUrls.isEmpty()) {
+                thread.setReferenceImages(mergeReferenceImages(thread.getReferenceImages(), referenceUrls));
+            }
+            thread.setStatus("pending");
+            thread.setAttemptCount(attemptNo);
+            dbMapper.updateThread(thread);
+        }
         return new ThreadVO(threadId, attempts);
     }
 
-    /** 轮询并刷新 Thread 下所有 Attempt 的状态。 */
-    public ThreadVO getThread(String threadId) throws IOException {
-        List<AttemptVO> attempts = threads.get(threadId);
-        if (attempts == null) {
-            // 服务重启后从数据库恢复外部任务 ID，避免只能查询内存任务。
-            List<AttemptEntity> stored = dbMapper.findAttemptsByThread(threadId);
-            if (stored == null || stored.isEmpty()) throw new IllegalArgumentException("Thread 不存在: " + threadId);
-            attempts = new ArrayList<>();
-            for (AttemptEntity item : stored) {
-                attempts.add(toAttemptVO(item, List.of()));
+    /** 合并已保存的参考图与本次重试新上传的 URL。 */
+    private String mergeReferenceImages(String existing, List<String> additions) throws IOException {
+        List<Map<String, Object>> references = new ArrayList<>();
+        if (existing != null && !existing.isBlank()) {
+            try {
+                List<?> stored = mapper.readValue(existing, List.class);
+                for (Object item : stored) {
+                    if (item instanceof Map<?, ?> map) {
+                        Map<String, Object> reference = new LinkedHashMap<>();
+                        for (Map.Entry<?, ?> entry : map.entrySet()) {
+                            if (entry.getKey() != null) {
+                                reference.put(String.valueOf(entry.getKey()), entry.getValue());
+                            }
+                        }
+                        references.add(reference);
+                    }
+                }
+            } catch (IOException | RuntimeException ignored) {
+                log.warn("Thread 参考图记录格式异常，将仅保存本次 URL");
             }
-            threads.put(threadId, attempts);
         }
+        for (String url : additions) {
+            Map<String, Object> reference = new LinkedHashMap<>();
+            reference.put("url", url);
+            reference.put("filename", "reference-" + (references.size() + 1));
+            reference.put("mimeType", "image/*");
+            references.add(reference);
+        }
+        return mapper.writeValueAsString(references);
+    }
+
+    /** 轮询并刷新 Thread 下所有 Attempt 的状态。 */
+    public ThreadVO getThread(String userId, String threadId) throws IOException {
+        requireThreadOwner(userId, threadId);
+        // MySQL 是 Thread/Attempt 的最终事实来源；内存只用于减少对象重建，不保存业务状态。
+        List<AttemptEntity> stored = dbMapper.findAttemptsByThread(threadId);
+        if (stored == null || stored.isEmpty()) throw new IllegalArgumentException("Thread 不存在: " + threadId);
+        List<AttemptVO> attempts = new ArrayList<>();
+        for (AttemptEntity item : stored) {
+            attempts.add(toAttemptVO(item, parseResultUrls(item.getResults())));
+        }
+        Collections.reverse(attempts);
         List<AttemptVO> refreshed = new ArrayList<>();
         for (AttemptVO attempt : attempts) {
+            // 终态记录直接返回 MySQL，不再重复请求 Python。
+            if ((!PENDING.equals(attempt.status()) && !"running".equals(attempt.status()))
+                    || attempt.taskId() == null || missingPythonTasks.contains(attempt.taskId())) {
+                refreshed.add(attempt);
+                continue;
+            }
             try {
                 TaskVO task = getTask(attempt.taskId());
+                if (task == null) {
+                    // Python 重启后历史任务可能已被清理，保留 Java 侧历史记录即可。
+                    missingPythonTasks.add(attempt.taskId());
+                    refreshed.add(attempt);
+                    continue;
+                }
                 List<String> normalizedUrls = (task.imageUrls() == null ? List.<String>of() : task.imageUrls()).stream().map(GenImgsServiceImpl::normalizeImageUrl).toList();
                 refreshed.add(new AttemptVO(
                     attempt.attemptId(),
@@ -179,25 +240,19 @@ public class GenImgsServiceImpl implements GenImgsService {
                 update.setResults(mapper.writeValueAsString(resultImages));
                 update.setErrorMessage(task.error()); update.setExternalTaskId(task.taskId());
                 dbMapper.updateAttempt(update);
-                saveAttemptSnapshot(threadId, refreshed.get(refreshed.size() - 1));
             } catch (Exception e) {
-                AttemptVO snapshot = readAttemptSnapshot(attempt);
-                if (snapshot != null) {
-                    refreshed.add(snapshot);
-                    continue;
-                }
-                log.warn("刷新任务状态失败，threadId={} taskId={}", threadId, attempt.taskId(), e);
+                // Python 暂时不可用时直接返回本次从 MySQL 读取的记录。
+                log.warn("刷新任务状态失败，threadId={} taskId={}，保留数据库状态", threadId, attempt.taskId(), e);
                 refreshed.add(attempt);
             }
         }
-        attempts.clear();
-        attempts.addAll(refreshed);
+        threads.put(threadId, refreshed);
         AttemptVO latest = refreshed.isEmpty() ? null : refreshed.get(refreshed.size() - 1);
         if (latest != null) {
             ThreadEntity updateThread = new ThreadEntity(); updateThread.setId(threadId); updateThread.setStatus(latest.status());
             dbMapper.updateThread(updateThread);
         }
-        return new ThreadVO(threadId, attempts);
+        return new ThreadVO(threadId, refreshed);
     }
 
     private AttemptVO submitAttempt(GenerateImageDTO request, List<String> referenceUrls) throws IOException, InterruptedException {
@@ -224,21 +279,25 @@ public class GenImgsServiceImpl implements GenImgsService {
     }
 
     @Override
-    public List<AttemptEntity> findAttempts(String threadId) {
+    public List<AttemptEntity> findAttempts(String userId, String threadId) {
+        requireThreadOwner(userId, threadId);
         List<AttemptEntity> result = dbMapper.findAttemptsByThread(threadId);
         log.debug("查询线程尝试完成，threadId={} count={}", threadId, result == null ? 0 : result.size());
         return result;
     }
 
     @Override
-    public int updateThread(ThreadEntity thread) {
+    public int updateThread(String userId, ThreadEntity thread) {
+        requireThreadOwner(userId, thread == null ? null : thread.getId());
         int updated = dbMapper.updateThread(thread);
         if (updated == 0) log.warn("线程更新未命中记录，threadId={}", thread == null ? null : thread.getId());
         return updated;
     }
 
     @Override
-    public int updateAttempt(AttemptEntity attempt) {
+    public int updateAttempt(String userId, AttemptEntity attempt) {
+        AttemptEntity stored = attempt == null ? null : dbMapper.findAttempt(attempt.getId());
+        requireThreadOwner(userId, stored == null ? null : stored.getThreadId());
         int updated = dbMapper.updateAttempt(attempt);
         if (updated == 0) log.warn("尝试更新未命中记录，attemptId={}", attempt == null ? null : attempt.getId());
         return updated;
@@ -258,6 +317,15 @@ public class GenImgsServiceImpl implements GenImgsService {
         }
         thread.setReferenceImages(mapper.writeValueAsString(references));
         thread.setStatus(PENDING); thread.setAttemptCount(1); return thread;
+    }
+
+    /** 校验 Thread 属于当前 JWT 用户，避免仅凭 ID 访问他人数据。 */
+    private void requireThreadOwner(String userId, String threadId) {
+        ThreadEntity thread = threadId == null ? null : dbMapper.findThread(threadId);
+        if (thread == null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "Thread 不存在");
+        if (userId == null || !userId.equals(thread.getUserId())) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "无权访问该 Thread");
+        }
     }
 
     private AttemptEntity toAttempt(AttemptVO source, GenerateImageDTO request, String threadId, int number) {
@@ -301,19 +369,21 @@ public class GenImgsServiceImpl implements GenImgsService {
         );
     }
 
-    /** 保存 Java 侧 Attempt 快照，供远程任务暂时不可用时兜底。 */
-    private void saveAttemptSnapshot(String threadId, AttemptVO attempt) {
+    /** 从 MySQL 的 results JSON 中恢复生成图片地址。 */
+    private List<String> parseResultUrls(String results) {
+        if (results == null || results.isBlank()) return List.of();
         try {
-            redis.opsForValue().set("mindscribe:java:attempt:" + attempt.attemptId(), mapper.writeValueAsString(attempt), java.time.Duration.ofDays(7));
-        } catch (Exception e) { log.warn("保存 Attempt Redis 快照失败，threadId={}", threadId, e); }
-    }
-
-    /** 读取最近一次 Java 快照；只在 Python 查询失败时使用。 */
-    private AttemptVO readAttemptSnapshot(AttemptVO attempt) {
-        try {
-            String value = redis.opsForValue().get("mindscribe:java:attempt:" + attempt.attemptId());
-            return value == null ? null : mapper.readValue(value, AttemptVO.class);
-        } catch (Exception e) { return null; }
+            List<Map<String, Object>> images = mapper.readValue(results, List.class);
+            List<String> urls = new ArrayList<>();
+            for (Map<String, Object> image : images) {
+                Object url = image.get("url");
+                if (url != null && !String.valueOf(url).isBlank()) urls.add(normalizeImageUrl(String.valueOf(url)));
+            }
+            return urls;
+        } catch (IOException | RuntimeException e) {
+            log.warn("Attempt 结果记录格式异常，忽略无法解析的图片地址");
+            return List.of();
+        }
     }
 
     private static void add(List<HttpClientUtil.Part> parts, String name, String value) {
