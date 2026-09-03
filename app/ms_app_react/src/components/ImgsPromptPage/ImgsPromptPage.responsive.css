@@ -130,6 +130,11 @@ height:14px}
 .prompt-actions .optimize-prompt-button::after{
   content:"优化提示词";
 font-size:10px}
+/* 顶部按钮本身已有文案，禁止响应式兼容规则再次追加文字。 */
+.prompt-actions .optimize-prompt-button::after{
+  content:none;
+  display:none;
+}
 .custom-tag-row{
   display:flex;
   align-items:center;

@@ -4836,6 +4836,58 @@ body {
 .unified-header .workspace-heading h2 {
   font-size:28px;
 }
+/* 提示词构建入口使用明确的文字动作，避免单独图标被误解为分析工具。 */
+.prompt-editor-head button.prompt-builder-trigger {
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  min-height:30px;
+  width:auto;
+  flex:0 0 auto;
+  padding:2px 7px 2px 4px;
+  color:#707767;
+  border:1px solid transparent;
+  border-radius:9px;
+  background:transparent;
+  font-size:11px;
+  font-weight:600;
+  white-space:nowrap;
+  transition:color .18s ease, border-color .18s ease, background .18s ease, transform .18s ease;
+}
+.prompt-editor-head button.prompt-builder-trigger svg {
+  display:block;
+  width:25px;
+  height:25px;
+  padding:5px;
+  color:#788923;
+  border-radius:7px;
+  background:#edf2c9;
+  transition:color .18s ease, background .18s ease;
+}
+.prompt-editor-head button.prompt-builder-trigger:hover {
+  color:#4f5f1b;
+  border-color:#e2e6d1;
+  background:#f7f8f0;
+  transform:translateY(-1px);
+}
+.prompt-editor-head button.prompt-builder-trigger:hover svg {
+  color:#586914;
+  background:#dfeaa0;
+}
+.prompt-editor-head button.prompt-builder-trigger:focus-visible {
+  outline:2px solid #b5c85d;
+  outline-offset:2px;
+}
+@media (max-width:720px) {
+  .prompt-editor-head button.prompt-builder-trigger span {
+    display:none;
+  }
+  .prompt-editor-head button.prompt-builder-trigger {
+    width:30px;
+    padding:0;
+  }
+}
 /* 工作区入口固定在视口右上角，避免随侧栏宽度跳动。 */
 .workspace-dock-button:first-child,
 .app-frame:has(.unified-rail) .workspace-dock-button:first-child {

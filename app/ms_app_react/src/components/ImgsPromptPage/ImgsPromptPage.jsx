@@ -252,7 +252,7 @@ function RichChipInput({ chipId, value, placeholder, indentStyle, onInput, onKey
 }
 
 /** 单条提示词芯片：标签悬浮在首行左侧，正文占满整行，换行后文字可延伸到标签下方。 */
-function PromptChip({ chip, onInput, onKey, onBlur, onRemove }) {
+function PromptChip({ chip, onInput, onKey, onBlur, onRemove, compactLabel = false }) {
   const labelRef = useRef(null);
   const [indent, setIndent] = useState(0);
   useLayoutEffect(() => {
@@ -261,8 +261,8 @@ function PromptChip({ chip, onInput, onKey, onBlur, onRemove }) {
   }, [chip.key]);
   const indentStyle = indent ? { textIndent: `${indent + 8}px` } : undefined;
   return (
-    <div className={`prompt-chip ${chip.type === "text" ? "prompt-text-chip" : "prompt-field-chip"}`} data-chip="true">
-      <span className="prompt-chip-label" ref={labelRef}>{chip.type === "field" ? `${chip.key}：` : "用户输入："}</span>
+    <div className={`prompt-chip ${chip.type === "text" ? "prompt-text-chip" : "prompt-field-chip"} ${compactLabel ? "prompt-chip-compact" : ""}`} data-chip="true">
+      <span className="prompt-chip-label" ref={labelRef}>{chip.type === "field" ? `${chip.key}：` : compactLabel ? "用户输入：" : "用户输入："}</span>
       <RichChipInput
         key={chip.id}
         chipId={chip.id}
@@ -561,13 +561,26 @@ export default function ImgsPromptPage() {
         <section className="prompt-workbench">
           <div className="prompt-heading">
             <div><span>提示词编辑</span><small>{chips.filter((chip) => chip.type === "field").length} 个标签已添加</small></div>
+            <div className="prompt-heading-input">
+              {chips.filter((chip) => chip.type === "text").map((chip) => (
+                <PromptChip
+                  key={chip.id}
+                  chip={chip}
+                  onInput={handleChipInput}
+                  onKey={handleChipKeyDown}
+                  onBlur={() => setMention(null)}
+                  onRemove={() => removeChip(chip.id)}
+                  compactLabel
+                />
+              ))}
+            </div>
             <div className="prompt-actions">
               <button type="button" className="optimize-prompt-button" onClick={() => setToast("LLM 优化功能即将上线")}><Sparkles size={14} />优化提示词</button>
             </div>
           </div>
           <div className="editor-wrap">
             <div ref={editorRef} className="prompt-editor-surface prompt-rich-editor">
-              {chips.map((chip) => (
+              {chips.filter((chip) => chip.type === "field").map((chip) => (
                 <PromptChip
                   key={chip.id}
                   chip={chip}
