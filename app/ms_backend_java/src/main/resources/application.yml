@@ -38,7 +38,7 @@ jwt:
   # 开发环境默认值；生产环境必须通过 JWT_SECRET 设置独立的高强度密钥。
   secret: ${JWT_SECRET:mindscribe-development-jwt-secret-change-before-production}
   issuer: ${JWT_ISSUER:mindscribe}
-  expiration-seconds: ${JWT_EXPIRATION_SECONDS:1800}
+  expiration-seconds: ${JWT_EXPIRATION_SECONDS:14400}
   cookie-name: ${JWT_COOKIE_NAME:mindscribe-token}
   secure-cookie: ${JWT_SECURE_COOKIE:false}
 

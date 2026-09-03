@@ -41,7 +41,7 @@ public class AuthController {
             log.warn("登录失败，邮箱登录请求");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("{\"code\":\"INVALID_CREDENTIALS\",\"message\":\"邮箱或密码错误\"}");
         }
-        response.addHeader("Set-Cookie", ResponseCookie.from(jwtService.cookieName(), jwtService.create(user.userId(), user.email(), user.role())).httpOnly(true).sameSite("Lax").path("/").maxAge(1800).build().toString());
+        response.addHeader("Set-Cookie", ResponseCookie.from(jwtService.cookieName(), jwtService.create(user.userId(), user.email(), user.role())).httpOnly(true).sameSite("Lax").path("/").maxAge(jwtService.expirationSeconds()).build().toString());
         return ResponseEntity.ok(user);
     }
 
@@ -61,7 +61,7 @@ public class AuthController {
         try { if (!registerCodeService.verify(request.email(), request.verificationCode())) return ResponseEntity.badRequest().body("{\"code\":\"INVALID_CODE\",\"message\":\"验证码错误或已过期\"}"); }
         catch (IllegalStateException ex) { return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body("{\"code\":\"CODE_LOCKED\",\"message\":\"验证码错误次数过多\"}"); }
         LoginVO user=authService.register(request); if(user==null) return ResponseEntity.status(409).body("{\"code\":\"EMAIL_EXISTS\",\"message\":\"邮箱已注册\"}");
-        response.addHeader("Set-Cookie", ResponseCookie.from(jwtService.cookieName(), jwtService.create(user.userId(), user.email(), user.role())).httpOnly(true).sameSite("Lax").path("/").maxAge(1800).build().toString());
+        response.addHeader("Set-Cookie", ResponseCookie.from(jwtService.cookieName(), jwtService.create(user.userId(), user.email(), user.role())).httpOnly(true).sameSite("Lax").path("/").maxAge(jwtService.expirationSeconds()).build().toString());
         return ResponseEntity.ok(user);
     }
 

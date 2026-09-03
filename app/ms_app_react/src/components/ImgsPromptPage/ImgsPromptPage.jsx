@@ -291,9 +291,18 @@ export default function ImgsPromptPage() {
     const textChips = parsed.filter((chip) => chip.type === "text");
     const parsedFields = parsed.filter((chip) => chip.type === "field");
     // 字段芯片从 draft.tags 恢复（保存时与提示词文本分开传递），重进页面时还原完整编辑状态。
-    const tagFields = (draft.tags || [])
-      .filter((tag) => !parsedFields.some((chip) => chip.key === tag.key))
-      .map((tag) => ({ id: `field-tag-${tag.key}`, type: "field", key: tag.key, value: tag.value || "" }));
+    const existingKeys = new Set(parsedFields.map((chip) => chip.key));
+    const tagFields = (draft.tags || []).flatMap((tag, index) => {
+      const key = String(tag?.key || "").trim();
+      if (!key || existingKeys.has(key)) return [];
+      existingKeys.add(key);
+      return [{
+        id: `field-tag-${key}-${index}`,
+        type: "field",
+        key,
+        value: tag.value || ""
+      }];
+    });
     const text = textChips.length ? textChips : [{ id: "text-composer", type: "text", value: "" }];
     return [...text, ...parsedFields, ...tagFields];
   });
