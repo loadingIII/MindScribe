@@ -13,6 +13,15 @@ spring:
     username: ${MYSQL_USERNAME:root}
     password: ${MYSQL_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
+  #spring ai
+  ai:
+    openai:
+      base-url: ${LLM_API_URL}
+      api-key: ${LLM_API_KEY}
+      chat:
+        options:
+          model: ${LLM_API_NAME}
+          temperature: 0.8
 
 # 加载 XML 中的动态更新语句（updateThread/updateAttempt）。
 mybatis:
@@ -52,3 +61,4 @@ spring.data.redis:
 logging:
   level:
     com.ms: DEBUG
+

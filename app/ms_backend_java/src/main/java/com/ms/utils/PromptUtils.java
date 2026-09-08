@@ -21,7 +21,7 @@ public class PromptUtils {
     private static final Logger log = LogUtil.getLogger(PromptUtils.class);
 
     /** 提示词文件存放的基础路径 */
-    private static final String PROMPT_BASE_PATH = "com/ms/prompt/";
+    private static final String PROMPT_BASE_PATH = "com/ms/prompts/";
 
     /** 缓存已读取的提示词内容，避免重复 IO */
     private final Map<String, String> promptCache = new HashMap<>();

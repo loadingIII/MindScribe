@@ -16,7 +16,7 @@ public class PromptReadTest {
     @Test
     void ReadPrompt()  {
         try {
-            String context = promptUtils.readPrompt("test/DemoPrompt");
+            String context = promptUtils.readPrompt("GenImgsTagPrompt");
             System.out.println("##############################");
             System.out.println(context);
             System.out.println("##############################");

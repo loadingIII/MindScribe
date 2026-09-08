@@ -41,7 +41,13 @@ public class AuthController {
             log.warn("登录失败，邮箱登录请求");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("{\"code\":\"INVALID_CREDENTIALS\",\"message\":\"邮箱或密码错误\"}");
         }
-        response.addHeader("Set-Cookie", ResponseCookie.from(jwtService.cookieName(), jwtService.create(user.userId(), user.email(), user.role())).httpOnly(true).sameSite("Lax").path("/").maxAge(jwtService.expirationSeconds()).build().toString());
+        response.addHeader("Set-Cookie",
+                ResponseCookie.from(jwtService.cookieName(),
+                        jwtService.create(user.userId(), user.email(), user.role()))
+                        .httpOnly(true).sameSite("Lax").path("/")
+                        .maxAge(jwtService.expirationSeconds())
+                        .build().toString()
+        );
         return ResponseEntity.ok(user);
     }
 

@@ -63,6 +63,8 @@ public class GenImgsServiceImpl implements GenImgsService {
             log.warn("图片生成请求缺少 prompt");
             throw new IllegalArgumentException("prompt 不能为空");
         }
+        log.info("###############\n提示词:"+request.getPrompt()+"\n###############");
+
         List<HttpClientUtil.Part> parts = new ArrayList<>();
         parts.add(HttpClientUtil.Part.text("prompt", request.getPrompt()));
         add(parts, "model", request.getModel());
