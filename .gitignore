@@ -46,3 +46,6 @@ Thumbs.db
 
 # AI计划文档
 .docs/*
+
+#页面Demo
+exp/prompts_store_ui_demo/*

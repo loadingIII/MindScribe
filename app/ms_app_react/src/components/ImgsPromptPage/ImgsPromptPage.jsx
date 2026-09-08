@@ -321,6 +321,8 @@ export default function ImgsPromptPage() {
   const [leftRatio, setLeftRatio] = useCachedState("prompt-builder:leftRatio", 0.55);
   const [referenceRatio, setReferenceRatio] = useCachedState("prompt-builder:referenceRatio", 0.32);
   const [previewItem, setPreviewItem] = useState(null);
+  // 请求进行中时禁用按钮，避免同一份创作内容被重复提交。
+  const [optimizing, setOptimizing] = useState(false);
   const savedSnapshot = useRef(initialPrompt);
   // 分类文案更新后，旧的子分类状态可能仍在首帧渲染中；使用当前分类的首个子分类兜底，避免白屏。
   const activeGroup = GROUPS[active] || GROUPS["主体对象"];
@@ -490,6 +492,56 @@ export default function ImgsPromptPage() {
     window.addEventListener("pointerup", stop);
   }
 
+  /** 调用后端优化当前用户输入，并使用模型返回的标签替换编辑区标签。 */
+  async function optimizePrompt() {
+    const composer = chips.find((chip) => chip.type === "text");
+    const userPrompt = String(composer?.value || "").trim();
+    if (!userPrompt) {
+      setToast("请先输入创作内容");
+      return;
+    }
+
+    setOptimizing(true);
+    try {
+      // 后端根据 [序号:文件名] 标记筛选实际关联图并上传到 OSS。
+      const form = new FormData();
+      form.append("userPrompt", userPrompt);
+      references.forEach((item, index) => {
+        if (item.file instanceof File) {
+          form.append("referenceImages", item.file);
+          form.append("referenceIndexes", String(index + 1));
+        }
+      });
+      const response = await fetch("/ai/prompts/optimize", {
+        method: "POST",
+        body: form
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.message || "提示词优化失败，请稍后重试");
+      }
+      const optimizedTags = Array.isArray(data.tags_prompt)
+        ? data.tags_prompt
+        : [];
+      if (!optimizedTags.length) {
+        throw new Error("未获得可用的优化标签");
+      }
+      const textChips = chips.filter((chip) => chip.type === "text");
+      const tagChips = optimizedTags.map((tag, index) => ({
+        id: `field-ai-${Date.now()}-${index}`,
+        type: "field",
+        key: String(tag.tag_name || "").trim(),
+        value: String(tag.tag_value || "").trim()
+      })).filter((chip) => chip.key && chip.value);
+      setChips([...textChips, ...tagChips]);
+      setToast("提示词已优化，请确认标签内容");
+    } catch (error) {
+      setToast(error.message || "提示词优化失败，请稍后重试");
+    } finally {
+      setOptimizing(false);
+    }
+  }
+
   return (
     <section className="imgs-prompt-page">
       <div className="imgs-prompt-layout" ref={layoutRef}>
@@ -575,7 +627,7 @@ export default function ImgsPromptPage() {
               ))}
             </div>
             <div className="prompt-actions">
-              <button type="button" className="optimize-prompt-button" onClick={() => setToast("LLM 优化功能即将上线")}><Sparkles size={14} />优化提示词</button>
+              <button type="button" className="optimize-prompt-button" onClick={optimizePrompt} disabled={optimizing}><Sparkles size={14} />{optimizing ? "优化中…" : "优化提示词"}</button>
             </div>
           </div>
           <div className="editor-wrap">

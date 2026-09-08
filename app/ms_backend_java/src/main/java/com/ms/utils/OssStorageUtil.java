@@ -65,4 +65,16 @@ public class OssStorageUtil {
             throw e;
         }
     }
+
+    /** 上传文件并返回带有效期的签名 URL，供外部模型读取私有 OSS 图片。 */
+    public String uploadForModel(MultipartFile file, String prefix) throws IOException {
+        String stableUrl = upload(file, prefix);
+        String marker = "https://" + bucket + "." + endpointHost + "/";
+        if (!stableUrl.startsWith(marker)) {
+            throw new IOException("OSS 文件地址格式不正确");
+        }
+        String objectName = stableUrl.substring(marker.length());
+        Date expiration = new Date(System.currentTimeMillis() + expireSeconds * 1000L);
+        return client.generatePresignedUrl(bucket, objectName, expiration).toString();
+    }
 }

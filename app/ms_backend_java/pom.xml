@@ -28,7 +28,22 @@
     </scm>
     <properties>
         <java.version>17</java.version>
+        <spring-ai.version>1.0.3</spring-ai.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Spring AI 版本管理。 -->
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <!--oss-->
         <dependency>
@@ -72,6 +87,11 @@
             <artifactId>lombok</artifactId>
             <version>1.18.36</version> <!-- 建议使用最新稳定版 -->
             <scope>provided</scope> <!-- 重要！表示编译时需要，但运行时不需要 -->
+        </dependency>
+        <!-- Spring AI OpenAI 模型 Starter。 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
         </dependency>
 
         <dependency>
