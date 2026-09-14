@@ -61,4 +61,3 @@ spring.data.redis:
 logging:
   level:
     com.ms: DEBUG
-

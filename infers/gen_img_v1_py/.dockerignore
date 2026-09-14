@@ -1,0 +1,5 @@
+# 本地缓存与密钥文件不进入构建上下文
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
