@@ -49,7 +49,7 @@ function sameTags(left, right) {
   return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
 }
 
-// 格式化 Attempt 创建时间；缺失或无效值统一显示“暂无”。
+// 格式化 Attempt 创建时间；缺失或无效值统一显示"暂无"。
 function formatAttemptCreatedAt(value) {
   if (value === null || value === undefined || value === "") return "暂无";
   const date = new Date(value);
@@ -453,37 +453,71 @@ export function CreatePage() {
         setTaskThreads(hydrated);
         setThreadPage(0);
         setThreadHasMore(threads.length === 10);
-        // 刷新后恢复当前线程及所选 Attempt，避免回到“新任务”初始状态。
-        const currentThread = hydrated.find((item) => item.id === threadId);
-        const currentAttempt = (currentThread?.attempts || []).find((item) => item.id === attemptId)
-          || (currentThread?.attempts || []).at(-1);
-        if (currentThread && currentAttempt) {
-          const snapshotMatchesDraft = !attemptId
-            || (draft.prompt === (currentAttempt.prompt || "")
-              && sameTags(draft.tags, currentAttempt.tags));
-          if (snapshotMatchesDraft) {
-            setAttemptId(currentAttempt.id);
-            setPrompt(currentAttempt.prompt || "");
-            setDraft((current) => ({
-              ...current,
-              prompt: currentAttempt.prompt || "",
-              tags: currentAttempt.tags || [],
-              model: currentAttempt.modelName || current.model,
-              size: currentAttempt.size || current.size,
-              quality: currentAttempt.quality || current.quality,
-              references: currentThread.references || []
-            }));
+        
+        // 刷新后从缓存状态恢复当前线程及所选 Attempt，避免丢失工作进度。
+        if (threadId) {
+          console.log("[恢复] threadId:", threadId, "当前 taskName:", taskName);
+          console.log("[恢复] 线程列表:", hydrated.map(t => ({ id: t.id, title: t.title })));
+          const currentThread = hydrated.find((item) => item.id === threadId);
+          if (currentThread) {
+            console.log("[恢复] 找到线程:", currentThread.title);
+            // 恢复任务名称
+            setTaskName(currentThread.title);
+            
+            // 加载该线程的完整 Attempt 列表
+            try {
+              const attemptsResponse = await fetch(`/gen_imgs/threads/${threadId}/attempts?page=0&size=10`);
+              if (attemptsResponse.ok) {
+                const attempts = await attemptsResponse.json();
+                const mappedThread = mapThread({ ...currentThread, attempts });
+                const updatedThreads = hydrated.map((t) => t.id === threadId ? mappedThread : t);
+                setTaskThreads(updatedThreads);
+                
+                // 优先恢复缓存的 attemptId，否则使用最新的 Attempt
+                const targetAttempt = attemptId
+                  ? mappedThread.attempts.find((item) => item.id === attemptId)
+                  : mappedThread.attempts.at(-1);
+                
+                if (targetAttempt) {
+                  console.log("[恢复] 恢复 Attempt:", targetAttempt.id, "状态:", targetAttempt.rawStatus);
+                  // 恢复 Attempt 的完整状态：提示词、标签、参数和结果图
+                  setAttemptId(targetAttempt.id);
+                  setPrompt(targetAttempt.prompt || "");
+                  setDraft((current) => ({
+                    ...current,
+                    prompt: targetAttempt.prompt || "",
+                    tags: targetAttempt.tags || [],
+                    model: targetAttempt.modelName || current.model,
+                    size: targetAttempt.size || current.size,
+                    quality: targetAttempt.quality || current.quality,
+                    references: mappedThread.references || []
+                  }));
+                  
+                  const restoredStatus = targetAttempt.rawStatus === "succeeded" || targetAttempt.imageUrls.length
+                    ? "done"
+                    : targetAttempt.rawStatus === "failed" ? "failed" 
+                    : targetAttempt.rawStatus === "running" ? "working" : "queued";
+                  console.log("[恢复] 设置状态:", restoredStatus, "图片数量:", targetAttempt.imageUrls.length);
+                  setStatus(restoredStatus);
+                  
+                  setResults(targetAttempt.imageUrls.map((url, index) => ({
+                    id: `${targetAttempt.id}-${index}`,
+                    image: url,
+                    title: `${mode} · ${index + 1}`,
+                    version: "初稿",
+                    attemptNumber: targetAttempt.attemptNo
+                  })));
+                }
+              }
+            } catch (error) {
+              console.error("恢复 Attempt 状态失败:", error);
+            }
+          } else {
+            // 找不到对应的线程，说明可能已被删除，清除缓存状态
+            console.warn("[恢复] 未找到 threadId 对应的线程，清除缓存状态");
+            setThreadId("");
+            setAttemptId("");
           }
-          setStatus(currentAttempt.rawStatus === "succeeded" || currentAttempt.imageUrls.length
-            ? "done"
-            : currentAttempt.rawStatus === "failed" ? "failed" : "working");
-          setResults(currentAttempt.imageUrls.map((url, index) => ({
-            id: `${currentAttempt.id}-${index}`,
-            image: url,
-            title: `${mode} · ${index + 1}`,
-            version: "初稿",
-            attemptNumber: currentAttempt.attemptNo
-          })));
         }
       } catch (error) { setToast(error.message); }
     }
@@ -743,7 +777,7 @@ export function CreatePage() {
     form.append("n", String(count));
     form.append("title", generatedTitle);
     form.append("model", draft.model || "gpt-image-2"); form.append("size", normalizeSize(draft.size));
-    // 生图服务只接受 auto、low、medium、high；界面“标准”对应 medium。
+    // 生图服务只接受 auto、low、medium、high；界面"标准"对应 medium。
     form.append("quality", normalizeQuality(draft.quality)); form.append("outputFormat", "png");
     // multipart 表单字段使用 Java DTO 的属性名，避免 @ModelAttribute 无法绑定下划线字段。
     files.forEach(({ file, url }) => { if (file instanceof File) form.append("referenceImages", file); else if (url) form.append("referenceImageUrls", url); });
@@ -818,8 +852,9 @@ export function CreatePage() {
     saveCachedReferences([]).catch(() => setToast("参考图清理失败，请稍后重试"));
     setFiles([]); setReferencesLocked(false); setResults([]); setStatus("idle");
     setTaskName(defaultThreadTitle(taskThreads)); setEditingTaskName(false);
+    setAttemptId(""); // 清空 Attempt ID，避免保留旧任务的执行记录引用
     // 新建任务同时清空上一次从提示词构建页带回的标签栏内容。
-    setDraft({ ...draft, prompt: "", tags: [] });
+    setDraft({ ...draft, prompt: "", tags: [], references: [] });
     setToast("已准备新的创作");
   }
 
@@ -1274,7 +1309,7 @@ export function CommunityPage() {
   useGSAP(() => { const cards = gsap.utils.toArray(".feed-card"); gsap.fromTo(cards, { opacity: 0.25, scale: 0.9 }, { opacity: 1, scale: 1, stagger: 0.08, scrollTrigger: { trigger: ".community-feed", start: "top 80%", end: "bottom 65%", scrub: 0.8 } }); }, { scope: root });
   function remix(work) { setDraft({ prompt: work.prompt, model: work.model, size: work.size, mode: "图生图" }); navigate("/create"); setToast("已复制整套参数，可直接开始创作"); }
   return <section className="content-page community-page" ref={root}><PageHeading eyebrow="DISCOVER" title={<>灵感</>} description="看见喜欢的，带去继续创作。" action={<button className="primary-action" onClick={() => navigate("/create")}><WandSparkles size={16} />去创作</button>} />
-    <section className="community-bento"><article className="bento-hero" onClick={() => setSelected(works[0])}><img src={works[0].image} alt="" /><div><span>本周精选</span><h2>{works[0].title}</h2><p>来自 {works[0].author} 的公开作品</p></div></article><article className="bento-prompt"><span>可以被复刻的画面</span><p>“{works[1].prompt.slice(0, 36)}...”</p><button onClick={() => remix(works[1])}>带走这套参数 <ArrowRight size={15} /></button></article><article className="bento-event"><span>正在进行</span><strong>#手机壁纸</strong><p>1,284 份灵感正在生长</p></article><article className="bento-creator"><img src={works[2].avatar} alt="" /><div><b>{works[2].author}</b><span>把夜色做成海报的人</span></div><button onClick={() => setFollowing((items) => items.includes(works[2].authorId) ? items.filter((id) => id !== works[2].authorId) : [...items, works[2].authorId])}>{following.includes(works[2].authorId) ? "已关注" : "关注"}</button></article></section>
+    <section className="community-bento"><article className="bento-hero" onClick={() => setSelected(works[0])}><img src={works[0].image} alt="" /><div><span>本周精选</span><h2>{works[0].title}</h2><p>来自 {works[0].author} 的公开作品</p></div></article><article className="bento-prompt"><span>可以被复刻的画面</span><p>"{works[1].prompt.slice(0, 36)}..."</p><button onClick={() => remix(works[1])}>带走这套参数 <ArrowRight size={15} /></button></article><article className="bento-event"><span>正在进行</span><strong>#手机壁纸</strong><p>1,284 份灵感正在生长</p></article><article className="bento-creator"><img src={works[2].avatar} alt="" /><div><b>{works[2].author}</b><span>把夜色做成海报的人</span></div><button onClick={() => setFollowing((items) => items.includes(works[2].authorId) ? items.filter((id) => id !== works[2].authorId) : [...items, works[2].authorId])}>{following.includes(works[2].authorId) ? "已关注" : "关注"}</button></article></section>
     <div className="community-filter"><div>{categories.map((item) => <button key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div><button className="sort-button">热门 <ChevronDown size={14} /></button></div>
     <section className="community-feed"><aside><span>作品会因为<br />新的观看方式<br />重新活一次。</span></aside><div className="feed-grid">{list.map((work) => <article className="feed-card" key={work.id}><button className="image-hit" onClick={() => setSelected(work)}><img src={work.image} alt={work.title} /></button><div className="feed-meta"><div><img src={work.avatar} alt="" /><span>{work.author}</span></div><button onClick={() => toggleWork(work.id, "liked")} className={work.liked ? "liked" : ""}><Heart size={15} fill={work.liked ? "currentColor" : "none"} />{formatNumber(work.likes)}</button></div><h3>{work.title}</h3><div className="feed-actions"><button onClick={() => remix(work)}><Copy size={14} />复刻同款</button><button onClick={() => toggleWork(work.id, "saved")}><Bookmark size={14} fill={work.saved ? "currentColor" : "none"} /></button></div></article>)}</div></section>
     {selected && <CommunityModal work={selected} onClose={() => setSelected(null)} onRemix={() => remix(selected)} />}
