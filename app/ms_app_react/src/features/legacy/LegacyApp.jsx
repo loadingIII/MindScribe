@@ -393,6 +393,8 @@ export function CreatePage() {
   const [templatePublishOpen, setTemplatePublishOpen] = useState(false);
   const [templateSaving, setTemplateSaving] = useState(false);
   const [selectedCover, setSelectedCover] = useState("");
+  // AI 生成模板名称/简介的请求状态：请求中禁用按钮并显示加载文案。
+  const [metadataGenerating, setMetadataGenerating] = useState(false);
   // 提示词构建页带回的结构化标签，用于画布顶部的"标签栏"展示。
   const draftTags = Array.isArray(draft.tags) ? draft.tags : [];
   const tagChips = buildTagChips(draftTags);
@@ -401,6 +403,51 @@ export function CreatePage() {
   const canvasRef = useRef(null);
   // 任务失败时只提示一次，轮询不会重复弹出同一条错误。
   const failedAttemptRef = useRef("");
+
+  /** 调用大模型，根据提示词、标签和结果图生成模板名称与简介并回填表单。 */
+  async function generateTemplateMetadata(event) {
+    event.preventDefault();
+    if (metadataGenerating) return;
+    // 按钮在 Modal headerExtra 内，不在 form 内部，无法通过 closest("form") 查找，改为直接查询弹窗内的表单元素。
+    const titleInput = document.querySelector('.modal form [name="title"]');
+    const descriptionInput = document.querySelector('.modal form [name="description"]');
+    if (!titleInput || !descriptionInput) {
+      console.warn("找不到模板名称或简介输入框");
+      return;
+    }
+    if (!prompt.trim()) {
+      setToast("请先填写提示词内容");
+      return;
+    }
+    setMetadataGenerating(true);
+    try {
+      const response = await fetch("/ai/prompts/generate-metadata", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userPrompt: prompt.trim(),
+          // 标签只传有效项，帮助模型理解画面构成；空数组表示尚未生成标签。
+          tags: draftTags
+            .filter((tag) => String(tag?.key || "").trim() && String(tag?.value || "").trim())
+            .map((tag) => ({ key: String(tag.key).trim(), value: String(tag.value).trim() })),
+          // 附带当前选中的封面（优先）或第一张结果图，模型可基于真实效果图撰写简介。
+          resultImageUrl: selectedCover || results[0]?.image || ""
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "模板信息生成失败，请稍后重试");
+      if (!data.title || !data.description) throw new Error("未获得有效的模板名称与简介");
+      // 仅当用户未手动填写时才回填，避免覆盖已输入的内容。
+      if (!titleInput.value.trim()) titleInput.value = data.title;
+      if (!descriptionInput.value.trim()) descriptionInput.value = data.description;
+      setToast("模板名称与简介已生成，可继续编辑");
+    } catch (error) {
+      setToast(error.message || "模板信息生成失败，请稍后重试");
+    } finally {
+      setMetadataGenerating(false);
+    }
+  }
 
   /** 发布当前创作模板，封面优先使用当前 Attempt 的第一张结果图。 */
   async function publishCurrentTemplate(event) {
@@ -1024,7 +1071,16 @@ export function CreatePage() {
     />}
     {threadEdit && <Modal title="修改任务名称" onClose={() => setThreadEdit(null)}><div className="template-form"><label>任务名称<input autoFocus maxLength="40" value={threadEdit.title} onChange={(event) => setThreadEdit({ ...threadEdit, title: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.closest("form")?.requestSubmit(); }} /></label><button type="button" className="primary-action" disabled={!threadEdit.title.trim()} onClick={async () => { try { const response = await fetch(`/gen_imgs/threads/${threadEdit.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: threadEdit.title.trim() }) }); if (!response.ok) throw new Error("任务名称修改失败"); setTaskThreads((items) => items.map((item) => item.id === threadEdit.id ? { ...item, title: threadEdit.title.trim() } : item)); if (workspaceThreadId === threadEdit.id) setTaskName(threadEdit.title.trim()); setThreadEdit(null); setToast("任务名称已更新"); } catch (error) { setToast(error.message); } }}>保存</button></div></Modal>}
     {templatePublishOpen && (
-      <Modal title="发布提示词" onClose={() => { setTemplatePublishOpen(false); setSelectedCover(""); }}>
+      <Modal
+        title="发布提示词"
+        onClose={() => { setTemplatePublishOpen(false); setSelectedCover(""); }}
+        headerExtra={
+          <button className="template-ai-generate" type="button" onClick={generateTemplateMetadata} disabled={metadataGenerating}>
+            <Sparkles size={13} className={metadataGenerating ? "ai-spin" : ""} />
+            {metadataGenerating ? "灵感凝合中…" : "AI 补全"}
+          </button>
+        }
+      >
         <form className="template-form" onSubmit={publishCurrentTemplate}>
           <div className="template-form-section">
             <label>
@@ -1340,9 +1396,9 @@ function PageHeading({ title, description, action }) {
   return <header className="page-heading"><div><h1>{title}</h1><p>{description}</p></div>{action && <div className="heading-side">{action}</div>}</header>;
 }
 
-function Modal({ title, children, onClose }) {
-  // 以通用遮罩承载详情、编辑和解析界面。
-  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal" onMouseDown={(event) => event.stopPropagation()}><header><h2>{title}</h2><button onClick={onClose}><X size={19} /></button></header>{children}</section></div>;
+function Modal({ title, children, onClose, headerExtra }) {
+  // 以通用遮罩承载详情、编辑和解析界面；headerExtra 渲染在标题右侧，用于放置轻量操作。
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal" onMouseDown={(event) => event.stopPropagation()}><header><div className="modal-title-group"><h2>{title}</h2>{headerExtra}</div><button onClick={onClose}><X size={19} /></button></header>{children}</section></div>;
 }
 
 export default LegacyApp;

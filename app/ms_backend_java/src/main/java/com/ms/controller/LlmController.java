@@ -3,7 +3,9 @@ package com.ms.controller;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ms.pojo.dto.GenerateMetadataRequest;
 import com.ms.pojo.dto.OptimizePromptRequest;
+import com.ms.pojo.vo.GenerateMetadataResponse;
 import com.ms.pojo.vo.OptimizePromptResponse;
 import com.ms.utils.LogUtil;
 import com.ms.utils.OssStorageUtil;
@@ -18,6 +20,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -41,6 +44,7 @@ public class LlmController {
 
     private static final org.slf4j.Logger log = LogUtil.getLogger(LlmController.class);
     private static final String TAG_PROMPT_TEMPLATE = "GenImgsTagPrompt";
+    private static final String METADATA_PROMPT_TEMPLATE = "GenTemplateMetadata";
     private static final String PROMPT_REFERENCE_IMAGES_DIR = "prompt-reference-images";
     private static final Pattern REFERENCE_MARK_PATTERN =
             Pattern.compile("\\[(\\d+):([^\\]]+)]");
@@ -85,6 +89,91 @@ public class LlmController {
                     HttpStatus.BAD_GATEWAY,
                     "提示词优化服务暂时不可用",
                     exception);
+        }
+    }
+
+    /** 根据用户提示词、已生成标签和结果图，生成模板名称与简介。 */
+    @PostMapping(value = "/prompts/generate-metadata")
+    public GenerateMetadataResponse generateMetadata(
+            @Valid @RequestBody GenerateMetadataRequest request) {
+        try {
+            // 使用流式响应逐段接收内容，全部片段拼接后再解析完整 JSON。
+            String response = chatClient.prompt(new Prompt(List.of(
+                            new SystemMessage(buildMetadataSystemPrompt(request)),
+                            buildMetadataUserMessage(request))))
+                    .stream()
+                    .content()
+                    .collect(Collectors.joining())
+                    .block();
+            return parseMetadataResponse(response);
+        } catch (ResponseStatusException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            log.error("调用模板元信息生成模型失败", exception);
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "模板信息生成服务暂时不可用",
+                    exception);
+        }
+    }
+
+    /** 读取并填充模板元信息提示词模板。 */
+    private String buildMetadataSystemPrompt(GenerateMetadataRequest request) {
+        try {
+            String template = promptUtils.readPrompt(METADATA_PROMPT_TEMPLATE);
+            return template
+                    .replace("{{user_prompt}}", request.getUserPrompt().trim())
+                    .replace("{{tags}}", objectMapper.writeValueAsString(
+                            request.getTags() == null ? List.of() : request.getTags()));
+        } catch (JsonProcessingException exception) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "标签信息格式不正确",
+                    exception);
+        } catch (IOException exception) {
+            log.error("读取模板元信息提示词模板失败", exception);
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "模板元信息模板加载失败",
+                    exception);
+        }
+    }
+
+    /** 构造模板元信息的用户消息；有结果图时附带图片媒体供模型视觉理解。 */
+    private UserMessage buildMetadataUserMessage(GenerateMetadataRequest request) {
+        UserMessage.Builder builder = UserMessage.builder()
+                .text("请根据以上创作提示词与标签，生成模板名称与简介。");
+        String resultImageUrl = request.getResultImageUrl();
+        if (resultImageUrl != null && !resultImageUrl.isBlank()) {
+            try {
+                builder.media(new Media(
+                        org.springframework.util.MimeTypeUtils.IMAGE_PNG,
+                        new URI(resultImageUrl)));
+            } catch (URISyntaxException exception) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "结果图访问地址无效",
+                        exception);
+            }
+        }
+        return builder.build();
+    }
+
+    /** 解析并清洗元信息模型输出，校验 title 与 description 非空。 */
+    private GenerateMetadataResponse parseMetadataResponse(String response) {
+        if (response == null || response.isBlank()) {
+            throw invalidModelResponse();
+        }
+        try {
+            JsonNode root = objectMapper.readTree(removeMarkdownFence(response));
+            String title = root.path("title").asText("").trim();
+            String description = root.path("description").asText("").trim();
+            if (title.isEmpty() || description.isEmpty()) {
+                throw invalidModelResponse();
+            }
+            return new GenerateMetadataResponse(title, description);
+        } catch (JsonProcessingException exception) {
+            throw invalidModelResponse();
         }
     }
 

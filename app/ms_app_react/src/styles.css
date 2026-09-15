@@ -1023,13 +1023,13 @@ img {
 }
 .template-form {
   display:grid;
-  gap:24px;
-  padding:32px;
+  gap:20px;
+  padding:28px;
   background:#FDFCFA;
 }
 .template-form-section {
   display:grid;
-  gap:10px;
+  gap:8px;
 }
 .template-form-section-title {
   font-size:12px;
@@ -1041,7 +1041,7 @@ img {
 }
 .template-form label {
   display:grid;
-  gap:8px;
+  gap:6px;
 }
 .template-form-label-text {
   font-size:14px;
@@ -1051,30 +1051,29 @@ img {
 .template-form input,
 .template-form textarea,
 .template-form select {
-  padding: 12px 16px;
+  padding: 10px 12px;
   color: var(--neo-text);
-  border: none;
+  border: 1px solid #E7E1D7;
   outline: 0;
-  background: var(--neo-surface);
-  box-shadow: var(--neo-shadow-pressed);
+  background: #FFFFFF;
+  box-shadow: none;
   font-size: 14px;
-  border-radius: 16px;
-  transition: all .2s ease;
+  border-radius: 8px;
+  transition: border-color .2s ease;
   font-family: inherit;
 }
 .template-form input:focus,
 .template-form textarea:focus,
 .template-form select:focus {
-  box-shadow: var(--neo-shadow-inset-deep);
-  outline: 2px solid rgba(136, 153, 204, 0.2);
-  outline-offset: -2px;
+  border-color: #8899CC;
+  outline: 0;
 }
 .template-form input::placeholder,
 .template-form textarea::placeholder {
   color: var(--neo-text-muted);
 }
 .template-form textarea {
-  min-height: 96px;
+  min-height: 80px;
   resize: vertical;
   line-height: 1.6;
 }
@@ -1083,37 +1082,34 @@ img {
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%238899CC' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 16px center;
-  padding-right: 40px;
+  background-position: right 12px center;
+  padding-right: 36px;
 }
 .template-cover-picker {
   display:grid;
-  gap:14px;
+  gap:10px;
 }
 .cover-options {
   display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(110px,1fr));
-  gap:12px;
+  grid-template-columns:repeat(auto-fill,minmax(96px,1fr));
+  gap:10px;
 }
 .cover-option {
   position:relative;
   aspect-ratio:1;
   overflow:hidden;
-  border:2px solid #E7E1D7;
-  border-radius:12px;
+  border:1px solid #E7E1D7;
+  border-radius:8px;
   cursor:pointer;
-  transition:all .25s cubic-bezier(.4,0,.2,1);
+  transition:border-color .2s ease;
   background:#F7F4EF;
 }
 .cover-option:hover {
   border-color:#C4612F;
-  transform:translateY(-2px);
-  box-shadow:0 4px 12px rgba(31,36,33,.08);
 }
 .cover-option.selected {
   border-color:#C4612F;
-  box-shadow:0 0 0 3px rgba(196,97,47,.15), 0 4px 12px rgba(31,36,33,.08);
-  transform:translateY(-2px);
+  box-shadow:0 0 0 2px rgba(196,97,47,.18);
 }
 .cover-option img {
   width:100%;
@@ -1125,7 +1121,7 @@ img {
   flex-direction:column;
   align-items:center;
   justify-content:center;
-  gap:8px;
+  gap:6px;
   color:#9EA08C;
   font-size:12px;
   font-weight:500;
@@ -1133,36 +1129,91 @@ img {
 }
 .cover-option.upload:hover {
   color:#C4612F;
-  background:#FBF9F5;
   border-color:#C4612F;
 }
 .cover-option input[type="file"] {
   display:none;
 }
 .template-form .primary-action {
-  margin-top:8px;
-  padding:14px 24px;
-  background:linear-gradient(135deg,#C4612F 0%,#A94E22 100%);
+  margin-top:4px;
+  padding:12px 24px;
+  background:#C4612F;
   color:#FFFFFF;
   border:none;
-  border-radius:999px;
-  font-size:15px;
+  border-radius:8px;
+  font-size:14px;
   font-weight:500;
   cursor:pointer;
-  transition:all .2s ease;
+  transition:background .2s ease;
   display:inline-flex;
   align-items:center;
   justify-content:center;
   gap:8px;
-  box-shadow:0 2px 8px rgba(196,97,47,.25);
+  box-shadow:none;
 }
 .template-form .primary-action:hover:not(:disabled) {
-  transform:translateY(-1px);
-  box-shadow:0 4px 16px rgba(196,97,47,.35);
+  background:#A94E22;
 }
 .template-form .primary-action:disabled {
   opacity:0.6;
   cursor:not-allowed;
+}
+/* 模板发布弹窗：标题组允许标题与 AI 按钮同排，间距保持呼吸感。 */
+.modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+/* AI 生成按钮：虚线胶囊暗示"待生成的魔法感"，平时安静，悬停时赤陶橙点亮。
+   选择器带 .modal>header 前缀，压过通用 .modal>header button 圆形样式的优先级。 */
+.modal>header .template-ai-generate {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  height: auto;
+  padding: 6px 14px;
+  color: #C4612F;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  background: transparent;
+  border: 1px dashed rgba(196, 97, 47, 0.45);
+  border-radius: 999px;
+  box-shadow: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .25s ease, border-color .25s ease, background .25s ease;
+}
+/* 悬停：星星轻转，底色泛起暖纸光泽，虚线落为实线。 */
+.modal>header .template-ai-generate:hover:not(:disabled) {
+  color: #A94E22;
+  border-color: #C4612F;
+  border-style: solid;
+  background: #FDF4EE;
+  box-shadow: none;
+  transform: none;
+}
+.modal>header .template-ai-generate:hover:not(:disabled) svg {
+  transform: rotate(90deg) scale(1.1);
+}
+.modal>header .template-ai-generate svg {
+  transition: transform .4s cubic-bezier(.34, 1.56, .64, 1);
+}
+/* 生成中：星星持续旋转，按钮保持可感知的忙碌态。 */
+.modal>header .template-ai-generate:disabled {
+  color: #C4612F;
+  border-color: rgba(196, 97, 47, 0.45);
+  background: transparent;
+  cursor: progress;
+  opacity: 0.85;
+}
+.modal>header .template-ai-generate svg.ai-spin {
+  animation: ai-sparkle-spin 1.2s linear infinite;
+}
+@keyframes ai-sparkle-spin {
+  to { transform: rotate(360deg); }
 }
 /* 素材库 */
 .library-tabs {
@@ -3720,10 +3771,7 @@ body {
   color:var(--ink);
 }
 .template-form input,.template-form textarea,.template-form select {
-  border:0;
-  border-radius:11px;
   color:var(--ink);
-  background:#f1f1e9;
 }
 /* 素材与作品 */
 .library-tabs,.profile-tabs {
@@ -6180,5 +6228,17 @@ body {
   }
   .workspace-rail-controls .task-name-inline {
     width: 110px;
+  }
+}
+/* 弹窗标题行在窄屏下允许换行，AI 按钮独占一行并撑满，保证触达面积。 */
+@media (max-width:620px) {
+  .modal-title-group {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .modal>header .template-ai-generate {
+    flex-basis: 100%;
+    justify-content: center;
+    padding: 9px 14px;
   }
 }

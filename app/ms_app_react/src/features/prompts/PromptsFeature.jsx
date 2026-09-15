@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Bookmark, Check, Copy, Grid2X2, List, Palette, Plus, Search, X, Pencil, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../../store/AppStore";
+import { clearCachedState } from "../../store/AppStore";
 
 const categories = ["全部", "头像", "壁纸", "海报", "插画", "明信片", "小红书插图"];
 const sources = ["全部", "官方", "社区", "我的"];
@@ -161,7 +162,28 @@ export default function PromptsFeature() {
 
   async function usePrompt(item) {
     await fetch(`/prompt_templates/${item.id}/use`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userPrompt: item.prompt }) }).catch(() => {});
-    setDraft({ prompt: item.prompt, tags: normalizeTags(item.tags).map((tag) => { const [key, ...rest] = tag.split(":"); return { key: key.trim(), value: rest.join(":").trim() }; }), model: "gpt-image-2", size: "auto", quality: "auto", mode: "文本生图" });
+    clearCachedState([
+      "create:files",
+      "create:referencesLocked",
+      "create:status",
+      "create:threadId",
+      "create:attemptId",
+      "create:results",
+      "create:taskName",
+      "create:tagsCollapsed"
+    ]);
+    setDraft({
+      prompt: item.prompt,
+      tags: normalizeTags(item.tags).map((tag) => {
+        const [key, ...rest] = tag.split(":");
+        return { key: key.trim(), value: rest.join(":").trim() };
+      }),
+      references: [],
+      model: "gpt-image-2",
+      size: "auto",
+      quality: "auto",
+      mode: "文本生图"
+    });
     navigate("/create");
     setToast("提示词已带入创作工作台");
   }
@@ -225,7 +247,7 @@ export default function PromptsFeature() {
   return <section className="prompt-library-v2">
     <section className="prompt-controls-v2"><div className="prompt-search-v2"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题、描述或标签" /></div><div className="prompt-control-actions"><select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="排序"><option value="recent">最近更新</option><option value="saved">收藏优先</option><option value="title">按名称</option></select><button className={view === "grid" ? "active" : ""} onClick={() => setView("grid")} aria-label="网格视图"><Grid2X2 size={16} /></button><button className={view === "list" ? "active" : ""} onClick={() => setView("list")} aria-label="列表视图"><List size={17} /></button><button className="new-prompt-v2" onClick={() => openEditor()}><Plus size={16} />新建模板</button></div><div className="prompt-filter-line"><div className="prompt-tabs-v2">{sources.map((item) => <button key={item} className={source === item ? "active" : ""} onClick={() => setSource(item)}>{item}<small>{item === "全部" ? prompts.length : prompts.filter((p) => p.source === item).length}</small></button>)}</div><div className="prompt-categories-v2">{categories.map((item) => <button key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div></div></section>
     <div className="prompt-content-v2"><main>{loading && <div className="prompt-empty-v2"><strong>正在加载提示词库…</strong></div>}{!loading && loadError && <div className="prompt-empty-v2"><Search size={22} /><strong>{loadError}</strong><span>请确认后端服务已启动。</span></div>}<div className={`prompt-grid-v2 ${view === "list" ? "is-list" : ""}`}>{visible.map((item) => <article className="prompt-card-v2" key={item.id} onClick={() => setSelected(item)}><div className="prompt-cover-v2">{item.cover && <img src={item.cover} alt="" />}<div><span>{item.source} · {item.category}</span><button onClick={(event) => { event.stopPropagation(); toggleFavorite(item); }} className={item.saved ? "saved" : ""} aria-label="收藏"><Bookmark size={16} fill={item.saved ? "currentColor" : "none"} /></button></div></div><div className="prompt-card-body-v2"><div className="prompt-title-v2"><h3>{item.title}</h3><small>{item.prompt.length} 字</small></div><p>{excerpt(item.description || item.prompt)}</p><div className="prompt-tags-v2">{(item.tags || []).slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="prompt-actions-v2"><button onClick={(event) => { event.stopPropagation(); copyPrompt(item); }}><Copy size={14} />复制</button><button onClick={(event) => { event.stopPropagation(); usePrompt(item); }}>套用构建器 <ArrowRight size={14} /></button></div></div></article>)}</div>{!loading && !loadError && !visible.length && <div className="prompt-empty-v2"><Search size={22} /><strong>提示词库还是空的</strong><span>创建第一个模板后，它会显示在这里。</span></div>}</main><aside className="prompt-rail-v2"><div className="prompt-insight-v2"><Palette size={20} /><span>BUILDING WITH CONTEXT</span><h2>从一张图开始，<em>反向读出它的语言。</em></h2><p>上传参考图，拆解主体、镜头、光线与材质，再保存为可调用的模板。</p><button onClick={() => setAnalysisOpen(true)}>打开图像解析 <ArrowRight size={15} /></button></div><div className="prompt-recent-v2"><div><b>最近使用</b><span>查看全部 →</span></div>{prompts.slice(0, 3).map((item) => <button key={item.id} onClick={() => setSelected(item)}><img src={item.cover} alt="" /><span><strong>{item.title}</strong><small>刚刚使用</small></span><ArrowRight size={14} /></button>)}</div></aside></div>
-    {(selected || editor || analysisOpen) && <div className="prompt-overlay-v2" onMouseDown={closeOverlay}><aside className="prompt-drawer-v2" onMouseDown={(event) => event.stopPropagation()}><button className="drawer-close-v2" onClick={closeOverlay}><X size={18} /></button>{selected && <><img className="drawer-cover-v2" src={selected.cover} alt="" /><span className="drawer-kicker-v2">{selected.source} · {selected.category}</span><h2>{selected.title}</h2><p className="drawer-prompt-v2">{selected.prompt}</p><div className="prompt-tags-v2">{(selected.tags || []).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="drawer-buttons-v2"><button onClick={() => copyPrompt(selected)}><Copy size={15} />复制全文</button><button onClick={() => usePrompt(selected)}>套用到创作 <ArrowRight size={15} /></button>{selected.editable && <><button onClick={() => openEditor(selected)}><Pencil size={15} />编辑</button><button onClick={() => deleteTemplate(selected)}><Trash2 size={15} />删除</button></>}</div></>}{editor && <form className="new-template-v2" onSubmit={saveTemplate}>
+    {(selected || editor || analysisOpen) && <div className="prompt-overlay-v2" onMouseDown={closeOverlay}><aside className="prompt-drawer-v2" onMouseDown={(event) => event.stopPropagation()}><button className="drawer-close-v2" onClick={closeOverlay}><X size={18} /></button>{selected && <><img className="drawer-cover-v2" src={selected.cover} alt="" /><span className="drawer-kicker-v2">{selected.source} · {selected.category}</span><h2>{selected.title}</h2><p className="drawer-prompt-v2">{selected.prompt}</p><div className="prompt-tags-v2">{(selected.tags || []).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="drawer-buttons-v2"><button onClick={() => usePrompt(selected)}>套用到创作 <ArrowRight size={15} /></button>{selected.editable && <><button onClick={() => openEditor(selected)}><Pencil size={15} />编辑</button><button onClick={() => deleteTemplate(selected)}><Trash2 size={15} />删除</button></>}</div></>}{editor && <form className="new-template-v2" onSubmit={saveTemplate}>
   {/* 表单头：英文 kicker + 衬线标题，与抽屉详情区保持同一版式。 */}
   <header className="drawer-form-head">
     <span className="drawer-kicker-v2">{editor.id ? "EDIT TEMPLATE" : "NEW TEMPLATE"}</span>
