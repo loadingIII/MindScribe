@@ -77,3 +77,61 @@ CREATE TABLE IF NOT EXISTS attempts (
         FOREIGN KEY (thread_id) REFERENCES threads (id)
         ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 提示词模板主表：模板元数据与当前发布状态。
+CREATE TABLE IF NOT EXISTS prompt_templates (
+    id CHAR(36) NOT NULL,
+    owner_user_id CHAR(36) NULL COMMENT '创建者；官方模板可为空',
+    title VARCHAR(255) NOT NULL,
+    description TEXT NULL,
+    cover_url VARCHAR(500) NULL,
+    source_type VARCHAR(20) NOT NULL DEFAULT 'personal' COMMENT 'official/community/personal',
+    category_code VARCHAR(64) NOT NULL DEFAULT 'illustration',
+    visibility VARCHAR(20) NOT NULL DEFAULT 'private' COMMENT 'public/private',
+    status VARCHAR(20) NOT NULL DEFAULT 'published' COMMENT 'draft/published/archived',
+    user_prompt_template TEXT NOT NULL,
+    system_prompt TEXT NULL,
+    builder_snapshot JSON NULL,
+    reference_slots JSON NULL,
+    model_defaults JSON NULL,
+    tags JSON NULL,
+    usage_count INT NOT NULL DEFAULT 0,
+    favorite_count INT NOT NULL DEFAULT 0,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    published_at DATETIME(3) NULL,
+    deleted_at DATETIME(3) NULL,
+    PRIMARY KEY (id),
+    KEY idx_prompt_templates_visibility (visibility, status, updated_at),
+    KEY idx_prompt_templates_owner (owner_user_id, updated_at),
+    KEY idx_prompt_templates_category (category_code, updated_at),
+    CONSTRAINT fk_prompt_templates_owner FOREIGN KEY (owner_user_id) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 模板收藏关系：一个用户对同一模板只能收藏一次。
+CREATE TABLE IF NOT EXISTS prompt_template_favorites (
+    user_id CHAR(36) NOT NULL,
+    template_id CHAR(36) NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (user_id, template_id),
+    CONSTRAINT fk_prompt_favorites_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_prompt_favorites_template FOREIGN KEY (template_id) REFERENCES prompt_templates (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 模板使用记录：用于最近使用与审计，不替代 attempts.prompt 快照。
+CREATE TABLE IF NOT EXISTS prompt_template_usages (
+    id CHAR(36) NOT NULL,
+    user_id CHAR(36) NOT NULL,
+    template_id CHAR(36) NOT NULL,
+    thread_id CHAR(36) NULL,
+    attempt_id CHAR(36) NULL,
+    rendered_prompt JSON NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    KEY idx_prompt_usages_user_created (user_id, created_at),
+    KEY idx_prompt_usages_template_created (template_id, created_at),
+    CONSTRAINT fk_prompt_usages_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_prompt_usages_template FOREIGN KEY (template_id) REFERENCES prompt_templates (id) ON DELETE CASCADE,
+    CONSTRAINT fk_prompt_usages_thread FOREIGN KEY (thread_id) REFERENCES threads (id) ON DELETE SET NULL,
+    CONSTRAINT fk_prompt_usages_attempt FOREIGN KEY (attempt_id) REFERENCES attempts (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

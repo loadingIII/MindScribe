@@ -1,26 +1,286 @@
-import { useMemo, useState } from "react";
-import { ArrowRight, Bookmark, Check, Copy, Grid2X2, List, Palette, Plus, Search, Sparkles, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowRight, Bookmark, Check, Copy, Grid2X2, List, Palette, Plus, Search, X, Pencil, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { image } from "../../assets/mockData";
 import { useStore } from "../../store/AppStore";
 
 const categories = ["全部", "头像", "壁纸", "海报", "插画", "明信片", "小红书插图"];
 const sources = ["全部", "官方", "社区", "我的"];
-function excerpt(value, max = 100) { const text = String(value || "").replace(/\s+/g, " ").trim(); return text.length > max ? `${text.slice(0, max)}…` : text; }
 
-/** 提示词库：筛选、收藏、复制与套用都保持和创作工作台共享同一份 Store。 */
+function excerpt(value, max = 100) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/** 将模板标签的 JSON 对象转为可展示、可检索的文字，避免出现 [object Object]。 */
+function formatTag(tag) {
+  if (tag == null) return "";
+  if (typeof tag === "string" || typeof tag === "number") return String(tag);
+  if (typeof tag === "object") {
+    const key = String(tag.key || tag.name || tag.label || "").trim();
+    const value = String(tag.value || "").trim();
+    if (key && value) return `${key}: ${value}`;
+    return key || value;
+  }
+  return "";
+}
+
+function normalizeTags(value) {
+  if (Array.isArray(value)) return value.map(formatTag).filter(Boolean);
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return normalizeTags(parsed);
+    } catch {
+      return value.split(",").map((tag) => tag.trim()).filter(Boolean);
+    }
+  }
+  return [];
+}
+
+/** 用户输入只保留正文，结构化字段单独作为标签展示。 */
+function splitTemplatePrompt(item) {
+  const prompt = String(item.userPromptTemplate || item.prompt || "");
+  const rawTags = normalizeTags(item.tags);
+  const fieldLines = new Set(rawTags.map((tag) => tag.split(":")[0].trim()));
+  const lines = prompt.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const userLines = lines.filter((line) => !fieldLines.has(line.split(":")[0].trim()));
+  return { prompt: userLines.join("\n"), tags: rawTags };
+}
+
+/** 将后端模板响应映射为提示词库现有卡片数据。 */
+function normalizeTemplate(item) {
+  const parsed = splitTemplatePrompt(item);
+  return { ...item, prompt: parsed.prompt, category: item.category || item.categoryCode || "插画", source: item.source || "我的", cover: item.coverUrl || item.cover || "", tags: parsed.tags, saved: Boolean(item.saved), editable: Boolean(item.editable) };
+}
+
+/** 提示词库只使用服务端数据，避免页面加载时闪现本地示例。 */
 export default function PromptsFeature() {
-  const { prompts, togglePrompt, addPrompt, setDraft, setToast } = useStore();
+  const { setDraft, setToast } = useStore();
   const navigate = useNavigate();
-  const [source, setSource] = useState("全部"); const [category, setCategory] = useState("全部"); const [query, setQuery] = useState(""); const [sort, setSort] = useState("recent"); const [view, setView] = useState("grid"); const [selected, setSelected] = useState(null); const [newOpen, setNewOpen] = useState(false); const [analysisOpen, setAnalysisOpen] = useState(false);
-  const visible = useMemo(() => { const q = query.trim().toLowerCase(); return prompts.filter((item) => { const text = `${item.title} ${item.prompt} ${(item.tags || []).join(" ")}`.toLowerCase(); return (source === "全部" || item.source === source) && (category === "全部" || item.category === category) && (!q || text.includes(q)); }).sort((a, b) => sort === "saved" ? Number(b.saved) - Number(a.saved) : sort === "title" ? a.title.localeCompare(b.title, "zh") : String(b.id).localeCompare(String(a.id))); }, [prompts, source, category, query, sort]);
-  function usePrompt(item) { setDraft({ prompt: item.prompt, model: "gpt-image-2", size: "auto", quality: "auto", mode: "文本生图" }); navigate("/create"); setToast("提示词已带入创作工作台"); }
+  const [prompts, setPrompts] = useState([]);
+  const [source, setSource] = useState("全部");
+  const [category, setCategory] = useState("全部");
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState("recent");
+  const [view, setView] = useState("grid");
+  const [selected, setSelected] = useState(null);
+  const [editor, setEditor] = useState(null);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/prompt_templates?page=0&size=50", { credentials: "include" })
+      .then((response) => { if (!response.ok) throw new Error("提示词库加载失败"); return response.json(); })
+      .then((items) => { if (active && Array.isArray(items)) { setPrompts(items.map(normalizeTemplate)); setLoadError(""); } })
+      .catch(() => { if (active) { setPrompts([]); setLoadError("提示词库暂时无法连接，请稍后重试"); } })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [setToast]);
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return prompts.filter((item) => {
+      const text = `${item.title} ${item.description || ""} ${item.prompt} ${(item.tags || []).join(" ")}`.toLowerCase();
+      return (source === "全部" || item.source === source) && (category === "全部" || item.category === category) && (!q || text.includes(q));
+    }).sort((a, b) => sort === "saved" ? Number(b.saved) - Number(a.saved) : sort === "title" ? a.title.localeCompare(b.title, "zh") : String(b.updatedAt || b.id).localeCompare(String(a.updatedAt || a.id)));
+  }, [prompts, source, category, query, sort]);
+
+  function closeOverlay() { setSelected(null); setEditor(null); setAnalysisOpen(false); }
+  function openEditor(item = null) {
+    setSelected(null);
+    if (!item) {
+      setDraft({ prompt: "", tags: [], references: [], model: "gpt-image-2", size: "auto", quality: "auto", mode: "文本生图", title: "" });
+      navigate("/create/prompt-builder", { state: { blank: true } });
+      return;
+    }
+    setEditor({ ...item, coverPreview: item.cover || "" });
+  }
+
+  /** 携带模板内容跳转提示词构建器；构建器保存时回写同 id 的模板。 */
+  function editPromptInBuilder(item) {
+    setDraft({
+      prompt: item.prompt,
+      tags: normalizeTags(item.tags).map((tag) => { const [key, ...rest] = tag.split(":"); return { key: key.trim(), value: rest.join(":").trim() }; }),
+      references: [],
+      model: item.modelDefaults?.model || "gpt-image-2",
+      size: "auto",
+      quality: "auto",
+      mode: item.modelDefaults?.mode || "文本生图",
+      templateId: item.id,
+      templateTitle: item.title
+    });
+    closeOverlay();
+    navigate("/create/prompt-builder", { state: { templateId: item.id } });
+  }
+
+  /** 上传新封面并更新列表；仅编辑已有模板时可用。 */
+  async function uploadCover(file) {
+    if (!editor?.id || !file) return;
+    setCoverUploading(true);
+    try {
+      const form = new FormData();
+      form.append("cover", file);
+      const response = await fetch(`/prompt_templates/${editor.id}/cover`, { method: "POST", credentials: "include", body: form });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "封面上传失败");
+      const updated = normalizeTemplate(data);
+      setPrompts((items) => items.map((item) => item.id === updated.id ? updated : item));
+      setEditor((current) => ({ ...current, cover: updated.cover, coverPreview: updated.cover }));
+      setToast("封面已更新");
+    } catch (error) {
+      setToast(error.message || "封面上传失败");
+    } finally {
+      setCoverUploading(false);
+    }
+  }
+
+  /** 移除封面：cover_url 置空，模板本身保留。 */
+  async function removeCover() {
+    if (!editor?.id) { setEditor((current) => ({ ...current, cover: "", coverPreview: "" })); return; }
+    setCoverUploading(true);
+    try {
+      const form = new FormData();
+      // 空文件用于复用上传通道不可行，这里直接走部分更新接口传空串清除封面。
+      const response = await fetch(`/prompt_templates/${editor.id}`, { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ coverUrl: "" }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "封面移除失败");
+      const updated = normalizeTemplate(data);
+      setPrompts((items) => items.map((item) => item.id === updated.id ? updated : item));
+      setEditor((current) => ({ ...current, cover: "", coverPreview: "" }));
+      setToast("封面已移除");
+    } catch (error) {
+      setToast(error.message || "封面移除失败");
+    } finally {
+      setCoverUploading(false);
+    }
+  }
+
+  async function usePrompt(item) {
+    await fetch(`/prompt_templates/${item.id}/use`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userPrompt: item.prompt }) }).catch(() => {});
+    setDraft({ prompt: item.prompt, tags: normalizeTags(item.tags).map((tag) => { const [key, ...rest] = tag.split(":"); return { key: key.trim(), value: rest.join(":").trim() }; }), model: "gpt-image-2", size: "auto", quality: "auto", mode: "文本生图" });
+    navigate("/create");
+    setToast("提示词已带入创作工作台");
+  }
+
   async function copyPrompt(item) { await navigator.clipboard?.writeText(item.prompt).catch(() => {}); setToast("提示词已复制到剪贴板"); }
-  function createTemplate(event) { event.preventDefault(); const form = new FormData(event.currentTarget); const title = String(form.get("title") || "").trim(); const prompt = String(form.get("prompt") || "").trim(); if (!title || !prompt) return; addPrompt({ title, prompt, category: String(form.get("category") || "插画"), tags: ["自定义"], cover: image(title) }); setNewOpen(false); setToast("模板已保存到我的提示词"); }
-  const closeOverlay = () => { setSelected(null); setNewOpen(false); setAnalysisOpen(false); };
+
+  async function toggleFavorite(item) {
+    try {
+      const response = await fetch(`/prompt_templates/${item.id}/favorite?saved=${!item.saved}`, { method: "POST", credentials: "include" });
+      if (!response.ok) throw new Error("收藏操作失败");
+      const updated = normalizeTemplate(await response.json());
+      setPrompts((items) => items.map((current) => current.id === item.id ? updated : current));
+    } catch (error) { setToast(error.message || "收藏操作失败"); }
+  }
+
+  async function saveTemplate(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    // 只提交表单实际收集的字段；提示词与标签在构建器中维护，编辑时通过部分更新保持原值。
+    const payload = {
+      title: String(form.get("title") || "").trim(),
+      description: String(form.get("description") || "").trim(),
+      categoryCode: String(form.get("category") || "插画"),
+      visibility: form.get("visibility") === "public" ? "public" : "private"
+    };
+    if (!payload.title) { setToast("请填写模板名称"); return; }
+    setSaving(true);
+    try {
+      const editing = editor?.id;
+      if (editing) {
+        const response = await fetch(`/prompt_templates/${editing}`, { method: "PUT", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        if (!response.ok) throw new Error("模板保存失败");
+        const saved = normalizeTemplate(await response.json());
+        setPrompts((items) => items.map((item) => item.id === editing ? saved : item));
+        closeOverlay();
+        setToast("模板已更新");
+        return;
+      }
+      // 新建场景：提示词必填，来自当前草稿内容。
+      payload.userPromptTemplate = String(editor?.prompt || "").trim();
+      payload.tags = editor?.tags || [];
+      if (!payload.userPromptTemplate) { setToast("请先在构建器中填写提示词内容"); return; }
+      const response = await fetch("/prompt_templates", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!response.ok) throw new Error("模板保存失败");
+      const saved = normalizeTemplate(await response.json());
+      setPrompts((items) => [saved, ...items]);
+      closeOverlay();
+      setToast("模板已保存到我的提示词");
+    } catch (error) { setToast(error.message || "模板保存失败"); } finally { setSaving(false); }
+  }
+
+  async function deleteTemplate(item) {
+    if (!window.confirm(`确定删除“${item.title}”吗？`)) return;
+    try {
+      const response = await fetch(`/prompt_templates/${item.id}`, { method: "DELETE", credentials: "include" });
+      if (!response.ok) throw new Error("模板删除失败");
+      setPrompts((items) => items.filter((current) => current.id !== item.id)); closeOverlay(); setToast("模板已删除");
+    } catch (error) { setToast(error.message || "模板删除失败"); }
+  }
+
   return <section className="prompt-library-v2">
-    <section className="prompt-controls-v2"><div className="prompt-search-v2"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题、描述或标签" /></div><div className="prompt-control-actions"><select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="排序"><option value="recent">最近更新</option><option value="saved">收藏优先</option><option value="title">按名称</option></select><button className={view === "grid" ? "active" : ""} onClick={() => setView("grid")} aria-label="网格视图"><Grid2X2 size={16} /></button><button className={view === "list" ? "active" : ""} onClick={() => setView("list")} aria-label="列表视图"><List size={17} /></button><button className="new-prompt-v2" onClick={() => setNewOpen(true)}><Plus size={16} />新建模板</button></div><div className="prompt-filter-line"><div className="prompt-tabs-v2">{sources.map((item) => <button key={item} className={source === item ? "active" : ""} onClick={() => setSource(item)}>{item}<small>{item === "全部" ? prompts.length : prompts.filter((p) => p.source === item).length}</small></button>)}</div><div className="prompt-categories-v2">{categories.map((item) => <button key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div></div></section>
-    <div className="prompt-content-v2"><main><div className={`prompt-grid-v2 ${view === "list" ? "is-list" : ""}`}>{visible.map((item) => <article className="prompt-card-v2" key={item.id} onClick={() => setSelected(item)}><div className="prompt-cover-v2"><img src={item.cover} alt="" /><div><span>{item.source} · {item.category}</span><button onClick={(event) => { event.stopPropagation(); togglePrompt(item.id); }} className={item.saved ? "saved" : ""} aria-label="收藏"><Bookmark size={16} fill={item.saved ? "currentColor" : "none"} /></button></div></div><div className="prompt-card-body-v2"><div className="prompt-title-v2"><h3>{item.title}</h3><small>{item.prompt.length} 字</small></div><p>{excerpt(item.prompt)}</p><div className="prompt-tags-v2">{(item.tags || []).slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="prompt-actions-v2"><button onClick={(event) => { event.stopPropagation(); copyPrompt(item); }}><Copy size={14} />复制</button><button onClick={(event) => { event.stopPropagation(); usePrompt(item); }}>套用构建器 <ArrowRight size={14} /></button></div></div></article>)}</div>{!visible.length && <div className="prompt-empty-v2"><Search size={22} /><strong>没有找到匹配的提示词</strong><span>试试更短的关键词，或切换分类。</span></div>}</main><aside className="prompt-rail-v2"><div className="prompt-insight-v2"><Palette size={20} /><span>BUILDING WITH CONTEXT</span><h2>从一张图开始，<em>反向读出它的语言。</em></h2><p>上传参考图，拆解主体、镜头、光线与材质，再保存为可调用的模板。</p><button onClick={() => setAnalysisOpen(true)}>打开图像解析 <ArrowRight size={15} /></button></div><div className="prompt-recent-v2"><div><b>最近使用</b><span>查看全部 →</span></div>{prompts.slice(0, 3).map((item) => <button key={item.id} onClick={() => setSelected(item)}><img src={item.cover} alt="" /><span><strong>{item.title}</strong><small>刚刚使用</small></span><ArrowRight size={14} /></button>)}</div></aside></div>
-    {(selected || newOpen || analysisOpen) && <div className="prompt-overlay-v2" onMouseDown={closeOverlay}><aside className="prompt-drawer-v2" onMouseDown={(event) => event.stopPropagation()}><button className="drawer-close-v2" onClick={closeOverlay}><X size={18} /></button>{selected && <><img className="drawer-cover-v2" src={selected.cover} alt="" /><span className="drawer-kicker-v2">{selected.source} · {selected.category}</span><h2>{selected.title}</h2><p className="drawer-prompt-v2">{selected.prompt}</p><div className="prompt-tags-v2">{(selected.tags || []).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="drawer-buttons-v2"><button onClick={() => copyPrompt(selected)}><Copy size={15} />复制全文</button><button onClick={() => usePrompt(selected)}>套用到创作 <ArrowRight size={15} /></button></div></>}{newOpen && <form className="new-template-v2" onSubmit={createTemplate}><span className="drawer-kicker-v2">NEW TEMPLATE</span><h2>新建提示词模板</h2><label>模板名称<input name="title" placeholder="例如：柔和的室内肖像" autoFocus /></label><label>所属分类<select name="category">{categories.slice(1).map((item) => <option key={item}>{item}</option>)}</select></label><label>提示词内容<textarea name="prompt" placeholder="描述主体、镜头、光线、材质……" /></label><button type="submit">保存模板 <Check size={15} /></button></form>}{analysisOpen && <div className="analysis-v2"><Palette size={25} /><h2>解析一张图片</h2><p>上传作品后，AI 会提取主体、构图、光线与材质，生成可复用的提示词。</p><label className="analysis-upload-v2">选择图片<input type="file" accept="image/*" onChange={() => setToast("图像解析入口已准备接入")} /></label></div>}</aside></div>}
+    <section className="prompt-controls-v2"><div className="prompt-search-v2"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题、描述或标签" /></div><div className="prompt-control-actions"><select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="排序"><option value="recent">最近更新</option><option value="saved">收藏优先</option><option value="title">按名称</option></select><button className={view === "grid" ? "active" : ""} onClick={() => setView("grid")} aria-label="网格视图"><Grid2X2 size={16} /></button><button className={view === "list" ? "active" : ""} onClick={() => setView("list")} aria-label="列表视图"><List size={17} /></button><button className="new-prompt-v2" onClick={() => openEditor()}><Plus size={16} />新建模板</button></div><div className="prompt-filter-line"><div className="prompt-tabs-v2">{sources.map((item) => <button key={item} className={source === item ? "active" : ""} onClick={() => setSource(item)}>{item}<small>{item === "全部" ? prompts.length : prompts.filter((p) => p.source === item).length}</small></button>)}</div><div className="prompt-categories-v2">{categories.map((item) => <button key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div></div></section>
+    <div className="prompt-content-v2"><main>{loading && <div className="prompt-empty-v2"><strong>正在加载提示词库…</strong></div>}{!loading && loadError && <div className="prompt-empty-v2"><Search size={22} /><strong>{loadError}</strong><span>请确认后端服务已启动。</span></div>}<div className={`prompt-grid-v2 ${view === "list" ? "is-list" : ""}`}>{visible.map((item) => <article className="prompt-card-v2" key={item.id} onClick={() => setSelected(item)}><div className="prompt-cover-v2">{item.cover && <img src={item.cover} alt="" />}<div><span>{item.source} · {item.category}</span><button onClick={(event) => { event.stopPropagation(); toggleFavorite(item); }} className={item.saved ? "saved" : ""} aria-label="收藏"><Bookmark size={16} fill={item.saved ? "currentColor" : "none"} /></button></div></div><div className="prompt-card-body-v2"><div className="prompt-title-v2"><h3>{item.title}</h3><small>{item.prompt.length} 字</small></div><p>{excerpt(item.description || item.prompt)}</p><div className="prompt-tags-v2">{(item.tags || []).slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="prompt-actions-v2"><button onClick={(event) => { event.stopPropagation(); copyPrompt(item); }}><Copy size={14} />复制</button><button onClick={(event) => { event.stopPropagation(); usePrompt(item); }}>套用构建器 <ArrowRight size={14} /></button></div></div></article>)}</div>{!loading && !loadError && !visible.length && <div className="prompt-empty-v2"><Search size={22} /><strong>提示词库还是空的</strong><span>创建第一个模板后，它会显示在这里。</span></div>}</main><aside className="prompt-rail-v2"><div className="prompt-insight-v2"><Palette size={20} /><span>BUILDING WITH CONTEXT</span><h2>从一张图开始，<em>反向读出它的语言。</em></h2><p>上传参考图，拆解主体、镜头、光线与材质，再保存为可调用的模板。</p><button onClick={() => setAnalysisOpen(true)}>打开图像解析 <ArrowRight size={15} /></button></div><div className="prompt-recent-v2"><div><b>最近使用</b><span>查看全部 →</span></div>{prompts.slice(0, 3).map((item) => <button key={item.id} onClick={() => setSelected(item)}><img src={item.cover} alt="" /><span><strong>{item.title}</strong><small>刚刚使用</small></span><ArrowRight size={14} /></button>)}</div></aside></div>
+    {(selected || editor || analysisOpen) && <div className="prompt-overlay-v2" onMouseDown={closeOverlay}><aside className="prompt-drawer-v2" onMouseDown={(event) => event.stopPropagation()}><button className="drawer-close-v2" onClick={closeOverlay}><X size={18} /></button>{selected && <><img className="drawer-cover-v2" src={selected.cover} alt="" /><span className="drawer-kicker-v2">{selected.source} · {selected.category}</span><h2>{selected.title}</h2><p className="drawer-prompt-v2">{selected.prompt}</p><div className="prompt-tags-v2">{(selected.tags || []).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="drawer-buttons-v2"><button onClick={() => copyPrompt(selected)}><Copy size={15} />复制全文</button><button onClick={() => usePrompt(selected)}>套用到创作 <ArrowRight size={15} /></button>{selected.editable && <><button onClick={() => openEditor(selected)}><Pencil size={15} />编辑</button><button onClick={() => deleteTemplate(selected)}><Trash2 size={15} />删除</button></>}</div></>}{editor && <form className="new-template-v2" onSubmit={saveTemplate}>
+  {/* 表单头：英文 kicker + 衬线标题，与抽屉详情区保持同一版式。 */}
+  <header className="drawer-form-head">
+    <span className="drawer-kicker-v2">{editor.id ? "EDIT TEMPLATE" : "NEW TEMPLATE"}</span>
+    <h2>{editor.id ? "编辑提示词模板" : "新建提示词模板"}</h2>
+  </header>
+  <label>
+    <span className="template-form-label-text">模板名称</span>
+    <input name="title" defaultValue={editor.title} placeholder="例如：柔和的室内肖像" autoFocus />
+  </label>
+  <label>
+    <span className="template-form-label-text">模板描述</span>
+    <input name="description" defaultValue={editor.description || ""} placeholder="一句话说明模板适合什么场景" />
+  </label>
+  {/* 分类与权限并排放置，缩短表单总高度。 */}
+  <div className="drawer-form-row">
+    <label>
+      <span className="template-form-label-text">所属分类</span>
+      <select name="category" defaultValue={editor.category}>{categories.slice(1).map((item) => <option key={item}>{item}</option>)}</select>
+    </label>
+    <label>
+      <span className="template-form-label-text">发布权限</span>
+      <select name="visibility" defaultValue={editor.visibility || "private"}>
+        <option value="public">社区（所有人可见）</option>
+        <option value="followers">关注我的人可见</option>
+        <option value="private">私有（仅自己可见）</option>
+      </select>
+    </label>
+  </div>
+  {/* 封面管理：预览当前封面，支持上传替换或移除。 */}
+  <div className="template-form-section">
+    <span className="template-form-label-text">封面图片</span>
+    <div className="drawer-cover-manager">
+      <div className={`drawer-cover-preview ${editor.coverPreview ? "" : "is-empty"}`}>
+        {editor.coverPreview
+          ? <img src={editor.coverPreview} alt="当前封面" />
+          : <span>暂无封面</span>}
+      </div>
+      <div className="drawer-cover-actions">
+        <label className={`drawer-cover-upload ${coverUploading ? "is-busy" : ""}`}>
+          <input type="file" accept="image/*" hidden disabled={coverUploading || !editor.id}
+            onChange={(event) => { const file = event.target.files?.[0]; if (file) uploadCover(file); event.target.value = ""; }} />
+          {coverUploading ? "上传中…" : editor.coverPreview ? "更换封面" : "上传封面"}
+        </label>
+        {editor.coverPreview && <button type="button" className="drawer-cover-remove" onClick={removeCover} disabled={coverUploading}>移除封面</button>}
+        {!editor.id && <small className="drawer-cover-note">保存模板后可设置封面</small>}
+      </div>
+    </div>
+  </div>
+  {/* 提示词在构建器中维护：底部提供跳转入口，与保存按钮纵向排列。 */}
+  <div className="drawer-form-actions">
+    {editor.id && <button type="button" className="drawer-edit-prompt" onClick={() => editPromptInBuilder(editor)}>
+      <Pencil size={15} />编辑提示词
+    </button>}
+    <button className="drawer-submit-v2" type="submit" disabled={saving}><Check size={16} />{saving ? "保存中…" : "保存模板"}</button>
+  </div>
+</form>}{analysisOpen && <div className="analysis-v2"><Palette size={25} /><h2>解析一张图片</h2><p>上传作品后，AI 会提取主体、构图、光线与材质，生成可复用的提示词。</p><label className="analysis-upload-v2">选择图片<input type="file" accept="image/*" onChange={() => setToast("图像解析入口已准备接入")} /></label></div>}</aside></div>}
   </section>;
 }

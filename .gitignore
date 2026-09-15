@@ -49,3 +49,6 @@ Thumbs.db
 
 #页面Demo
 exp/prompts_store_ui_demo/*
+
+
+.zcode/*

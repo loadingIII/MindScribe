@@ -110,6 +110,62 @@ CREATE TABLE `users` (
   UNIQUE KEY `uk_users_email` (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+-- Prompt template tables are maintained here as well as in the backend bootstrap schema.
+CREATE TABLE `prompt_templates` (
+  `id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `owner_user_id` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `cover_url` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_type` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'personal',
+  `category_code` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'illustration',
+  `visibility` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'private',
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'published',
+  `user_prompt_template` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `system_prompt` text COLLATE utf8mb4_unicode_ci,
+  `builder_snapshot` json DEFAULT NULL,
+  `reference_slots` json DEFAULT NULL,
+  `model_defaults` json DEFAULT NULL,
+  `tags` json DEFAULT NULL,
+  `usage_count` int NOT NULL DEFAULT '0',
+  `favorite_count` int NOT NULL DEFAULT '0',
+  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  `published_at` datetime(3) DEFAULT NULL,
+  `deleted_at` datetime(3) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_prompt_templates_visibility` (`visibility`,`status`,`updated_at`),
+  KEY `idx_prompt_templates_owner` (`owner_user_id`,`updated_at`),
+  KEY `idx_prompt_templates_category` (`category_code`,`updated_at`),
+  CONSTRAINT `fk_prompt_templates_owner` FOREIGN KEY (`owner_user_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `prompt_template_favorites` (
+  `user_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `template_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`user_id`,`template_id`),
+  CONSTRAINT `fk_prompt_favorites_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_prompt_favorites_template` FOREIGN KEY (`template_id`) REFERENCES `prompt_templates` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `prompt_template_usages` (
+  `id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `user_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `template_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `thread_id` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `attempt_id` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `rendered_prompt` json DEFAULT NULL,
+  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  KEY `idx_prompt_usages_user_created` (`user_id`,`created_at`),
+  KEY `idx_prompt_usages_template_created` (`template_id`,`created_at`),
+  CONSTRAINT `fk_prompt_usages_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_prompt_usages_template` FOREIGN KEY (`template_id`) REFERENCES `prompt_templates` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_prompt_usages_thread` FOREIGN KEY (`thread_id`) REFERENCES `threads` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_prompt_usages_attempt` FOREIGN KEY (`attempt_id`) REFERENCES `attempts` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;

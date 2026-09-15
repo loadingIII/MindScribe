@@ -14,6 +14,7 @@ public class WebConfig implements WebMvcConfigurer {
     public WebConfig(JwtService jwtService) { this.jwtService = jwtService; }
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(new JwtAuthInterceptor(jwtService)).addPathPatterns("/gen_imgs/**");
+        registry.addInterceptor(new JwtAuthInterceptor(jwtService))
+                .addPathPatterns("/gen_imgs/**", "/prompt_templates/**");
     }
 }

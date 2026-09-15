@@ -3,6 +3,7 @@ import { Save, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useCachedState, useStore } from "../../store/AppStore";
 import { ImagePreview } from "../../features/legacy/LegacyApp";
+import SelectField from "../SelectField";
 import "./ImgsPromptPage.css";
 import "./ImgsPromptPage.responsive.css";
 
@@ -323,6 +324,9 @@ export default function ImgsPromptPage() {
   const [previewItem, setPreviewItem] = useState(null);
   // 请求进行中时禁用按钮，避免同一份创作内容被重复提交。
   const [optimizing, setOptimizing] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [templateCategory, setTemplateCategory] = useState("插画");
   const savedSnapshot = useRef(initialPrompt);
   // 分类文案更新后，旧的子分类状态可能仍在首帧渲染中；使用当前分类的首个子分类兜底，避免白屏。
   const activeGroup = GROUPS[active] || GROUPS["主体对象"];
@@ -343,9 +347,14 @@ export default function ImgsPromptPage() {
   }, [active, sub, currentSub, subs]);
 
   useEffect(() => {
-    const handler = () => saveDraft();
-    window.addEventListener("imgs-prompt-save", handler);
-    return () => window.removeEventListener("imgs-prompt-save", handler);
+    const saveHandler = () => saveDraft();
+    const publishHandler = () => openTemplateDialog();
+    window.addEventListener("imgs-prompt-save", saveHandler);
+    window.addEventListener("imgs-prompt-publish", publishHandler);
+    return () => {
+      window.removeEventListener("imgs-prompt-save", saveHandler);
+      window.removeEventListener("imgs-prompt-publish", publishHandler);
+    };
   });
   useEffect(() => {
     // 外部创作页带入的内容不会触发 onChange，渲染后统一计算芯片输入框高度。
@@ -413,6 +422,50 @@ export default function ImgsPromptPage() {
     // 快照存完整构建结果（含字段芯片），保证保存后返回创作页时不再误报"未保存"。
     savedSnapshot.current = buildPrompt();
     setToast("提示词已保存");
+  }
+
+  /** 打开模板元信息表单；普通保存按钮不会触发模板写入。 */
+  function openTemplateDialog() {
+    if (!buildPrompt().trim()) {
+      setToast("请先填写提示词内容");
+      return;
+    }
+    setTemplateDialogOpen(true);
+  }
+
+  /** 将当前构建器的完整结构保存到提示词库，参考图只保存为插槽元数据。 */
+  async function saveTemplateToLibrary(metadata = {}) {
+    const composer = chips.find((chip) => chip.type === "text");
+    const prompt = composer ? composer.value.trim() : "";
+    if (!prompt.trim()) {
+      setToast("请先填写提示词内容");
+      return;
+    }
+    if (savingTemplate) return;
+    setSavingTemplate(true);
+    const tags = chips.filter((chip) => chip.type === "field").map((chip) => ({ key: chip.key, value: chip.value || "" }));
+    const payload = {
+      title: metadata.title?.trim() || "我的提示词模板",
+      description: metadata.description?.trim() || "",
+      categoryCode: metadata.categoryCode || "插画",
+      visibility: metadata.visibility === "public" ? "public" : "private",
+      userPromptTemplate: prompt,
+      builderSnapshot: { chips },
+      referenceSlots: references.map((item, index) => ({ slotKey: `reference_${index + 1}`, label: item.file?.name || item.name || `参考图${index + 1}`, required: false, maxCount: 1 })),
+      tags,
+      modelDefaults: { model: draft.model || "gpt-image-2", mode: draft.mode || "文本生图" }
+    };
+    try {
+      const response = await fetch("/prompt_templates", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!response.ok) throw new Error("模板保存失败");
+      saveDraft();
+      setTemplateDialogOpen(false);
+      setToast("提示词模板已保存");
+    } catch (error) {
+      setToast(error.message || "模板保存失败");
+    } finally {
+      setSavingTemplate(false);
+    }
   }
 
   // 保存并返回创作页：用于退出确认弹窗中的"保存并返回"。
@@ -685,6 +738,20 @@ export default function ImgsPromptPage() {
               <button type="button" className="confirm" onClick={confirmCustomTag} disabled={!customTag.trim()}>创建标签</button>
             </div>
           </div>
+        </div>
+      )}
+      {templateDialogOpen && (
+        <div className="custom-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setTemplateDialogOpen(false); }}>
+          <form className="custom-dialog template-save-dialog" role="dialog" aria-modal="true" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); saveTemplateToLibrary({ title: form.get("title"), description: form.get("description"), categoryCode: templateCategory, visibility: form.get("visibility") === "public" ? "public" : "private" }); }}>
+            <div className="custom-dialog-icon"><Save size={16} /></div>
+            <h2>发布到提示词模板</h2>
+            <p>补充模板信息后，保存为可重复使用的提示词。</p>
+            <label><span>模板名称</span><input name="title" autoFocus placeholder="例如：人物动作保持" required maxLength={80} /></label>
+            <label><span>模板简介</span><textarea name="description" placeholder="说明模板适合的场景和用途" maxLength={240} /></label>
+            <SelectField className="template-category-field" label="模板分类" value={templateCategory} options={["插画", "头像", "海报", "壁纸", "明信片"]} onChange={setTemplateCategory} />
+            <label className="template-visibility"><input name="visibility" value="public" type="checkbox" />公开模板</label>
+            <div className="custom-dialog-actions"><button type="button" onClick={() => setTemplateDialogOpen(false)}>取消</button><button type="submit" className="confirm" disabled={savingTemplate}>{savingTemplate ? "发布中…" : "发布模板"}</button></div>
+          </form>
         </div>
       )}
     </section>

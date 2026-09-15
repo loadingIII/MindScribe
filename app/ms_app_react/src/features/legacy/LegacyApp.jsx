@@ -4,7 +4,7 @@ import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import {
-  ArrowDownToLine, ArrowRight, Bookmark, Check, ChevronDown, Clock3, Copy, Download, Pencil,
+  ArrowDownToLine, ArrowRight, ArrowUpRight, Bookmark, Check, ChevronDown, Clock3, Copy, Download, Pencil,
   FileImage, FolderOpen, Heart, ImagePlus, Layers3, LayoutGrid, Maximize2, MessageCircle, MoreHorizontal,
   Palette, Plus, Search, Send, Settings2, Sparkles, Star, Trash2, UploadCloud, UserRound,
   WandSparkles, X, Zap, PanelRight, RotateCw
@@ -390,6 +390,9 @@ export function CreatePage() {
   const [taskName, setTaskName] = useCachedState("create:taskName", () => defaultThreadTitle());
   const [editingTaskName, setEditingTaskName] = useState(false);
   const [threadEdit, setThreadEdit] = useState(null);
+  const [templatePublishOpen, setTemplatePublishOpen] = useState(false);
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [selectedCover, setSelectedCover] = useState("");
   // 提示词构建页带回的结构化标签，用于画布顶部的"标签栏"展示。
   const draftTags = Array.isArray(draft.tags) ? draft.tags : [];
   const tagChips = buildTagChips(draftTags);
@@ -398,6 +401,41 @@ export function CreatePage() {
   const canvasRef = useRef(null);
   // 任务失败时只提示一次，轮询不会重复弹出同一条错误。
   const failedAttemptRef = useRef("");
+
+  /** 发布当前创作模板，封面优先使用当前 Attempt 的第一张结果图。 */
+  async function publishCurrentTemplate(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const title = String(form.get("title") || "").trim();
+    if (!title || !prompt.trim()) {
+      setToast("请填写模板名称和提示词内容");
+      return;
+    }
+    setTemplateSaving(true);
+    const payload = {
+      title,
+      description: String(form.get("description") || "").trim(),
+      categoryCode: String(form.get("category") || "插画"),
+      visibility: String(form.get("visibility") || "private"),
+      userPromptTemplate: prompt.trim(),
+      builderSnapshot: null,
+      referenceSlots: files.map((item, index) => ({ slotKey: `reference_${index + 1}`, label: item.file?.name || `参考图${index + 1}`, required: false, maxCount: 1 })),
+      tags: draftTags,
+      modelDefaults: { model: draft.model || "gpt-image-2", mode: draft.mode || "文本生图" },
+      coverUrl: selectedCover || results[0]?.image || ""
+    };
+    try {
+      const response = await fetch("/prompt_templates", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!response.ok) throw new Error("模板发布失败");
+      setTemplatePublishOpen(false);
+      setSelectedCover("");
+      setToast(payload.coverUrl ? "模板已发布，封面已设置" : "模板已发布，生成图片后可同步为封面");
+    } catch (error) {
+      setToast(error.message || "模板发布失败");
+    } finally {
+      setTemplateSaving(false);
+    }
+  }
 
   async function reloadTaskThreads() {
       try {
@@ -455,6 +493,55 @@ export function CreatePage() {
     reloadTaskThreads();
     return () => { cancelled = true; };
   }, []);
+
+  // 与 AppShell 顶栏通信：同步任务名称、工作区状态和发布按钮状态
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("topbar-task-name-update", { 
+      detail: { taskName } 
+    }));
+  }, [taskName]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("topbar-workspace-state", { 
+      detail: { open: workspaceOpen } 
+    }));
+  }, [workspaceOpen]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("topbar-publish-state", { 
+      detail: { canPublish: prompt.trim().length > 0 } 
+    }));
+  }, [prompt]);
+
+  useEffect(() => {
+    const handleSaveTaskName = (event) => {
+      const newName = event.detail.taskName;
+      if (newName && newName !== taskName) {
+        setTaskName(newName);
+        if (workspaceThreadId) {
+          saveThreadTitle();
+        }
+      }
+    };
+
+    const handleToggleWorkspace = (event) => {
+      setWorkspaceOpen(event.detail.open);
+    };
+
+    const handleOpenPublishModal = () => {
+      setTemplatePublishOpen(true);
+    };
+
+    window.addEventListener("topbar-save-task-name", handleSaveTaskName);
+    window.addEventListener("topbar-toggle-workspace", handleToggleWorkspace);
+    window.addEventListener("topbar-open-publish-modal", handleOpenPublishModal);
+
+    return () => {
+      window.removeEventListener("topbar-save-task-name", handleSaveTaskName);
+      window.removeEventListener("topbar-toggle-workspace", handleToggleWorkspace);
+      window.removeEventListener("topbar-open-publish-modal", handleOpenPublishModal);
+    };
+  }, [taskName, workspaceThreadId, prompt]);
 
   useEffect(() => {
     // 创作页的提示词实时同步到全局草稿，供提示词构建页读取同一份内容。
@@ -843,7 +930,6 @@ export function CreatePage() {
   }
 
   return <section className={`create-page ${workspaceOpen ? "has-workspace-rail" : ""} ${(threadId || workspaceThreadId) ? "has-thread" : ""}`} style={{ "--workspace-width": `${workspaceWidth}px` }} ref={canvasRef} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); }}>
-    <div className="create-intro workspace-rail-controls"><button className={`workspace-dock-button ${workspaceOpen ? "is-open" : ""}`} type="button" aria-expanded={workspaceOpen} onClick={() => setWorkspaceOpen((open) => !open)}><span className="dock-glyph"><PanelRight size={15} /></span><span>工作区</span></button><div className="task-name-editor"><input className="task-name-inline" value={taskName} maxLength="40" readOnly={!editingTaskName} onChange={(event) => setTaskName(event.target.value)} onBlur={() => { if (editingTaskName) saveThreadTitle(); }} onKeyDown={(event) => { if (event.key === "Enter") { event.currentTarget.blur(); setEditingTaskName(false); } }} aria-label="任务名称" /><button type="button" className="task-name-edit" title={editingTaskName ? "保存任务名称" : "修改任务名称"} onMouseDown={(event) => event.preventDefault()} onClick={() => { if (editingTaskName) { saveThreadTitle(); setEditingTaskName(false); } else setEditingTaskName(true); }}>{editingTaskName ? <Check size={14} /> : <Pencil size={14} />}</button></div></div>
     <div className="studio-grid">
       <section className="creation-controls">
         {/* 参考图、提示词与参数区放入可滚动容器：内容超高时在模块内滚动，避免溢出被页面裁切。 */}
@@ -902,6 +988,93 @@ export function CreatePage() {
       onSelectAttempt={selectAttempt}
     />}
     {threadEdit && <Modal title="修改任务名称" onClose={() => setThreadEdit(null)}><div className="template-form"><label>任务名称<input autoFocus maxLength="40" value={threadEdit.title} onChange={(event) => setThreadEdit({ ...threadEdit, title: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.closest("form")?.requestSubmit(); }} /></label><button type="button" className="primary-action" disabled={!threadEdit.title.trim()} onClick={async () => { try { const response = await fetch(`/gen_imgs/threads/${threadEdit.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: threadEdit.title.trim() }) }); if (!response.ok) throw new Error("任务名称修改失败"); setTaskThreads((items) => items.map((item) => item.id === threadEdit.id ? { ...item, title: threadEdit.title.trim() } : item)); if (workspaceThreadId === threadEdit.id) setTaskName(threadEdit.title.trim()); setThreadEdit(null); setToast("任务名称已更新"); } catch (error) { setToast(error.message); } }}>保存</button></div></Modal>}
+    {templatePublishOpen && (
+      <Modal title="发布提示词" onClose={() => { setTemplatePublishOpen(false); setSelectedCover(""); }}>
+        <form className="template-form" onSubmit={publishCurrentTemplate}>
+          <div className="template-form-section">
+            <label>
+              <span className="template-form-label-text">模板名称</span>
+              <input name="title" autoFocus required placeholder="例如：明信片风格" />
+            </label>
+          </div>
+          
+          <div className="template-form-section">
+            <label>
+              <span className="template-form-label-text">模板简介</span>
+              <textarea name="description" placeholder="说明模板适合的场景和用途" />
+            </label>
+          </div>
+          
+          <div className="template-form-section">
+            <label>
+              <span className="template-form-label-text">模板分类</span>
+              <select name="category" defaultValue="插画">
+                <option>插画</option>
+                <option>头像</option>
+                <option>海报</option>
+                <option>壁纸</option>
+                <option>明信片</option>
+                <option>小红书插图</option>
+              </select>
+            </label>
+          </div>
+          
+          <div className="template-form-section">
+            <label>
+              <span className="template-form-label-text">发布权限</span>
+              <select name="visibility" defaultValue="private">
+                <option value="public">社区（所有人可见）</option>
+                <option value="followers">关注我的人可见</option>
+                <option value="private">私有（仅自己可见）</option>
+              </select>
+            </label>
+          </div>
+          
+          <div className="template-form-section">
+            <span className="template-form-label-text">封面图片</span>
+            <div className="template-cover-picker">
+              <div className="cover-options">
+                {results.map((result, index) => (
+                  <div
+                    key={index}
+                    className={`cover-option ${selectedCover === result.image ? "selected" : ""}`}
+                    onClick={() => setSelectedCover(result.image)}
+                  >
+                    <img src={result.image} alt={`结果 ${index + 1}`} />
+                  </div>
+                ))}
+                <label className="cover-option upload">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = () => setSelectedCover(String(reader.result));
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                  />
+                  <UploadCloud size={22} />
+                  <span>自定义上传</span>
+                </label>
+              </div>
+              {!selectedCover && results.length === 0 && (
+                <small style={{ color: "#9EA08C", fontSize: "12px", fontStyle: "italic" }}>
+                  暂无生成图，请上传封面或稍后同步
+                </small>
+              )}
+            </div>
+          </div>
+          
+          <button className="primary-action" type="submit" disabled={templateSaving}>
+            <ArrowUpRight size={16} />
+            {templateSaving ? "发布中…" : "发布模板"}
+          </button>
+        </form>
+      </Modal>
+    )}
     {promptFullscreen && <PromptFullscreen value={prompt} files={files} onChange={setPrompt} onClose={() => setPromptFullscreen(false)} />}
     {advancedOpen && <AdvancedPromptModal value={additionalSystemPrompt} basePrompt={GEN_IMGS_SYSTEM_PROMPT} onChange={setAdditionalSystemPrompt} onClose={() => setAdvancedOpen(false)} onSave={() => { setDraft({ ...draft, additionalSystemPrompt }); setAdvancedOpen(false); setToast("系统提示词追加内容已保存"); }} />}
     {previewResult && <ImagePreview result={previewResult} filename={`${safeDownloadName(taskName)}-${previewResult.attemptNumber || 1}.png`} onClose={() => setPreviewResult(null)} onDownload={() => downloadResultImage(previewResult.image, `${safeDownloadName(taskName)}-${previewResult.attemptNumber || 1}.png`)} />}

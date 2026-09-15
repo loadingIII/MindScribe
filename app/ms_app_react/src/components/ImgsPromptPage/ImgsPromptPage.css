@@ -24,12 +24,12 @@ color:#272b24}
   gap:9px;
 font:600 21px Georgia,serif}
 .imgs-prompt-title svg{
-color:#91a72c}
+color:#8B9DD9}
 .finish-button{
   padding:10px 15px;
   border-radius:10px;
-  background:#d9e86a;
-  color:#272b24;
+  background:linear-gradient(135deg,#8899CC 0%,#A8B8E8 100%);
+  color:#FFFFFF;
 font-weight:700}
 .imgs-prompt-layout{
   display:flex;
@@ -76,7 +76,7 @@ width:2px}
   top:4px;
 height:2px}
 .pane-divider:hover::after,.pane-divider.is-active::after{
-background:#c3cf8e}
+background:#A8B8E8}
 /* 参考图模块：与创作页参考图同步，高度由水平分隔条拖拽调节。 */
 .reference-workbench{
   display:flex;
@@ -155,7 +155,7 @@ font:600 18px Georgia,serif}
   color:#92978c;
 font-size:11px}
 .workbench-heading>b{
-  color:#97aa3c;
+  color:#8B9DD9;
 font:10px 'DM Mono',monospace}
 .tag-workbench-body{
   display:grid;
@@ -185,16 +185,16 @@ font-size:11px}
 gap:8px}
 .level-one button i{
   font-style:normal;
-color:#a0ad59}
+color:#8B9DD9}
 .level-one button em{
   font:8px 'DM Mono',monospace;
 color:#b1b6a9}
 .level-one button.active{
-  background:#e9eecb;
+  background:#DEE6F8;
   color:#272b24;
 font-weight:700}
 .level-one button.active i,.level-one button.active em{
-color:#758d1a}
+color:#5F73B8}
 .level-two{
   min-width:0;
   padding:24px 26px;
@@ -230,9 +230,9 @@ font-size:10px}
   color:#a8ad9e;
 font:9px 'DM Mono',monospace}
 .sub-category-list button.active{
-  border-color:#bdcc6a;
-  background:#e4efa8;
-  color:#536516;
+  border-color:#9FB0E0;
+  background:#DEE6F8;
+  color:#43548F;
 font-weight:700}
 .level-three-head{
   padding-bottom:12px;
@@ -254,7 +254,7 @@ margin-top:14px}
 transition:.2s}
 .builder-tag:hover{
   transform:translateY(-2px);
-  border-color:#bdcc6a;
+  border-color:#9FB0E0;
 background:#f0f3df}
 .builder-tag small{
   display:block;
@@ -262,12 +262,12 @@ background:#f0f3df}
   color:#a0a49a;
 font-size:9px}
 .builder-tag.chosen{
-  border-color:#bacc62;
-  background:#d9e86a;
-  color:#536516;
+  border-color:transparent;
+  background:linear-gradient(135deg,#8899CC 0%,#A8B8E8 100%);
+  color:#FFFFFF;
 font-weight:700}
 .builder-tag.chosen small{
-color:#6b7c1b}
+color:rgba(255,255,255,.78)}
 .prompt-workbench{
   display:flex;
   min-width:360px;
@@ -289,14 +289,14 @@ gap:8px}
 color:#777d71}
 .prompt-actions>button:hover{
   color:#272b24;
-background:#e8ebdc}
+background:#E7EBF5}
 .prompt-actions .optimize-prompt-button{
   display:flex;
   width:auto;
   gap:6px;
   padding:0 10px;
-  background:#d9e86a;
-  color:#536516;
+  background:linear-gradient(135deg,#8899CC 0%,#A8B8E8 100%);
+  color:#FFFFFF;
   font-size:10px;
 font-weight:700}
 .field-list{
@@ -323,11 +323,11 @@ background:#f0f0ea}
   background:#e0e2d9;
 color:#9aa092}
 .prompt-field.saved .field-save{
-  background:#e4efa8;
-color:#5e7416}
+  background:#DEE6F8;
+color:#43548F}
 .prompt-field>span{
   flex:0 0 78px;
-  color:#65751b;
+  color:#5F73B8;
 font:10px 'DM Mono',monospace}
 .prompt-field input{
   min-width:0;
@@ -414,14 +414,14 @@ gap:6px}
   width:5px;
   height:5px;
   border-radius:50%;
-background:#91a72c}
+background:#8B9DD9}
 .prompt-status button{
   display:flex;
   align-items:center;
   gap:7px;
   border:0;
   background:transparent;
-  color:#748719;
+  color:#5F73B8;
   font-size:11px;
 font-weight:700}
 .prompt-status button svg{
@@ -466,7 +466,7 @@ transform:rotate(180deg)}
   padding:9px 14px;
 }
 .imgs-prompt-page .prompt-heading-input .prompt-chip:focus-within {
-  border-color:#c9d29b;
+  border-color:#B8C5EC;
   background:#ffffff;
   box-shadow:0 0 0 3px rgba(201,210,155,.2);
 }
@@ -489,6 +489,12 @@ transform:rotate(180deg)}
   color:#3d4339;
   font:500 12px/1.65 Georgia,serif;
   text-indent:0 !important;
+}
+.imgs-prompt-page .prompt-heading-input .chip-ref-mark {
+  font:500 12px/1.35 Georgia, serif;
+  padding:1px 4px;
+  border-radius:4px;
+  vertical-align:baseline;
 }
 .imgs-prompt-page .prompt-heading-input .prompt-chip-compact .rich-input {
   text-indent:0 !important;
@@ -513,17 +519,17 @@ transform:rotate(180deg)}
   min-height:38px;
   padding:0 13px;
   gap:6px;
-  border:1px solid #d1dd80;
+  border:1px solid #A8B8E8;
   border-radius:7px;
-  background:#e4eea1;
-  color:#526018;
+  background:#DEE6F8;
+  color:#43548F;
   box-shadow:none;
   font-size:10px;
   transition:background .18s ease, border-color .18s ease, transform .18s ease, box-shadow .18s ease;
 }
 .imgs-prompt-page .prompt-actions .optimize-prompt-button:hover {
-  border-color:#b7c85d;
-  background:#edf5b8;
+  border-color:#8B9DD9;
+  background:#E9EFFA;
   box-shadow:0 5px 12px rgba(143,163,42,.13);
   transform:translateY(-1px);
 }
@@ -551,8 +557,8 @@ transform:rotate(180deg)}
   background:#fffefa;
 }
 .imgs-prompt-page .prompt-rich-editor .prompt-text-chip > span {
-  background:#edf1d9;
-  color:#65752c;
+  background:#DEE6F8;
+  color:#43548F;
 }
 @media(max-width:980px) {
   .imgs-prompt-page .prompt-heading {
