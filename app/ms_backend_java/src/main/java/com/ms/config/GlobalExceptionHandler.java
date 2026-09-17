@@ -41,6 +41,17 @@ public class GlobalExceptionHandler {
                 exception.getReason());
     }
 
+    /** 处理图片生成服务调用失败（网络错误、超时、服务不可用等），返回可读的错误信息。 */
+    @ExceptionHandler({java.io.IOException.class, InterruptedException.class})
+    public ResponseEntity<Map<String, String>> handleServiceCommunication(Exception exception) {
+        String message = exception.getMessage();
+        // 保留原始错误信息，但对空消息兜底，避免前端收到空字符串。
+        if (message == null || message.isBlank()) {
+            message = "图片生成服务暂时不可用，请稍后重试";
+        }
+        return response(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_ERROR", message);
+    }
+
     /** 处理未预期异常，避免将堆栈信息暴露给客户端。 */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, String>> handleUnknown(Exception exception) {

@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ms.pojo.dto.GenerateMetadataRequest;
 import com.ms.pojo.dto.OptimizePromptRequest;
+import com.ms.pojo.dto.ParseImageRequest;
+import com.ms.pojo.dto.ParseImageResponse;
 import com.ms.pojo.vo.GenerateMetadataResponse;
 import com.ms.pojo.vo.OptimizePromptResponse;
 import com.ms.utils.LogUtil;
@@ -18,21 +20,20 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.content.Media;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.ModelAttribute;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -165,7 +166,7 @@ public class LlmController {
             throw invalidModelResponse();
         }
         try {
-            JsonNode root = objectMapper.readTree(removeMarkdownFence(response));
+            JsonNode root = objectMapper.readTree(repairModelJson(response, this::invalidModelResponse));
             String title = root.path("title").asText("").trim();
             String description = root.path("description").asText("").trim();
             if (title.isEmpty() || description.isEmpty()) {
@@ -317,7 +318,9 @@ public class LlmController {
             throw invalidModelResponse();
         }
         try {
-            JsonNode tags = objectMapper.readTree(removeMarkdownFence(response)).path("tags_prompt");
+            JsonNode tags = objectMapper
+                    .readTree(repairModelJson(response, this::invalidModelResponse))
+                    .path("tags_prompt");
             if (!tags.isArray()) {
                 throw invalidModelResponse();
             }
@@ -339,23 +342,296 @@ public class LlmController {
         }
     }
 
-    /** 兼容模型附带的 Markdown JSON 代码块。 */
-    private String removeMarkdownFence(String content) {
-        String trimmed = content.trim();
-        if (!trimmed.startsWith("```")) {
-            return trimmed;
-        }
-        int firstLineEnd = trimmed.indexOf('\n');
-        int lastFenceStart = trimmed.lastIndexOf("```");
-        return firstLineEnd >= 0 && lastFenceStart > firstLineEnd
-                ? trimmed.substring(firstLineEnd + 1, lastFenceStart).trim()
-                : trimmed;
-    }
-
     /** 避免把原始模型返回内容直接暴露给浏览器。 */
     private ResponseStatusException invalidModelResponse() {
         return new ResponseStatusException(
                 HttpStatus.BAD_GATEWAY,
                 "提示词优化服务返回的数据格式不正确");
+    }
+
+    /**
+     * 图像解析接口：根据用户上传的图片和解析意图，调用大模型进行视觉分析，
+     * 返回结构化的标签提示词。
+     *
+     * @param userPrompt 用户的解析意图（如"模仿构图"、"抽离画风"）
+     * @param image 待解析的图片文件
+     * @return 包含分析摘要和标签列表的响应
+     */
+    @PostMapping(value = "/prompts/parse-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ParseImageResponse parseImage(
+            @RequestParam("userPrompt") String userPrompt,
+            @RequestParam("image") MultipartFile image) {
+        // 参数校验
+        if (userPrompt == null || userPrompt.trim().isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "解析意图不能为空");
+        }
+        if (userPrompt.length() > 500) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "解析意图不能超过 500 个字符");
+        }
+        if (image == null || image.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "请上传待解析的图片");
+        }
+
+        try {
+            // 1. 上传图片到 OSS
+            String imageUrl = ossStorageUtil.upload(image, PROMPT_REFERENCE_IMAGES_DIR);
+            log.info("图像解析：已上传图片到 OSS，URL: {}", imageUrl);
+
+            // 2. 构建提示词并调用 LLM
+            String systemPrompt = buildImageParseSystemPrompt(userPrompt);
+            UserMessage userMessage = buildImageParseUserMessage(userPrompt, imageUrl);
+
+            // 3. 流式接收响应并拼接
+            String response = chatClient.prompt(new Prompt(List.of(
+                            new SystemMessage(systemPrompt),
+                            userMessage)))
+                    .stream()
+                    .content()
+                    .collect(Collectors.joining())
+                    .block();
+
+            // 4. 解析响应 JSON
+            return parseImageParseResponse(response);
+
+        } catch (ResponseStatusException exception) {
+            throw exception;
+        } catch (IOException exception) {
+            log.error("上传图片到 OSS 失败", exception);
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "图片上传失败，请稍后重试",
+                    exception);
+        } catch (Exception exception) {
+            log.error("调用图像解析模型失败", exception);
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "图像解析服务暂时不可用",
+                    exception);
+        }
+    }
+
+    /** 读取并填充图像解析提示词模板。 */
+    private String buildImageParseSystemPrompt(String userPrompt) {
+        try {
+            String template = promptUtils.readPrompt("GenPromptFromImage");
+            // GenPromptFromImage.md 模板已包含完整指令，此处无需额外替换
+            return template;
+        } catch (IOException exception) {
+            log.error("读取图像解析提示词模板失败", exception);
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "图像解析模板加载失败",
+                    exception);
+        }
+    }
+
+    /** 构造图像解析的用户消息，包含用户意图和图片。 */
+    private UserMessage buildImageParseUserMessage(String userPrompt, String imageUrl) {
+        try {
+            return UserMessage.builder()
+                    .text("用户的解析意图：" + userPrompt.trim())
+                    .media(new Media(
+                            org.springframework.util.MimeTypeUtils.IMAGE_PNG,
+                            new URI(imageUrl)))
+                    .build();
+        } catch (URISyntaxException exception) {
+            log.error("图片 URL 格式错误: {}", imageUrl, exception);
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "图片地址格式不正确",
+                    exception);
+        }
+    }
+
+    /** 解析图像解析模型返回的 JSON 响应；模型输出可能带 Markdown 围栏或被内容审核截断，需先做修复。 */
+    private ParseImageResponse parseImageParseResponse(String rawResponse) {
+        if (rawResponse == null || rawResponse.isBlank()) {
+            log.error("图像解析模型返回空内容");
+            throw invalidImageParseResponse();
+        }
+
+        JsonNode root = null;
+        try {
+            root = objectMapper.readTree(
+                    repairModelJson(rawResponse, this::invalidImageParseResponse));
+        } catch (JsonProcessingException exception) {
+            log.error("解析图像解析模型返回的 JSON 失败: {}", rawResponse, exception);
+            throw invalidImageParseResponse();
+        }
+
+        // 提取 analysis_summary
+        String summary = root.path("analysis_summary").asText("");
+
+        // 提取 tags 数组，只保留名称与内容均非空的项
+        List<ParseImageResponse.TagItem> tags = new ArrayList<>();
+        if (root.has("tags") && root.get("tags").isArray()) {
+            for (JsonNode tagNode : root.get("tags")) {
+                String tagName = tagNode.path("tag_name").asText("").trim();
+                String tagValue = tagNode.path("tag_value").asText("").trim();
+                if (!tagName.isBlank() && !tagValue.isBlank()) {
+                    tags.add(new ParseImageResponse.TagItem(tagName, tagValue));
+                }
+            }
+        }
+
+        if (tags.isEmpty()) {
+            log.error("图像解析模型未返回有效标签");
+            throw invalidImageParseResponse();
+        }
+
+        return new ParseImageResponse(summary, tags);
+    }
+
+    /**
+     * 清洗并修复模型输出，使其可被 Jackson 解析。
+     *
+     * <p>处理三类常见问题：</p>
+     * <ol>
+     * <li>Markdown 围栏：正常成对的 ```json ... ``` 先剥掉围栏行；
+     * 输出被中途截断导致缺少闭合围栏时，先剥掉起始的 ```json 行再交给修复逻辑。</li>
+     * <li>JSON 前后夹杂说明文字：截取首个 "{" 到最后一个 "}" 的主体部分重试。</li>
+     * <li>JSON 未闭合（截断的典型表现）：按括号栈逐字符补齐缺失的引号、数组与对象闭合符，
+     * 字符串内的未闭合引号同样会被补上，salvage 出已完整生成的标签。</li>
+     * </ol>
+     *
+     * @param rawResponse 模型原始返回内容
+     * @param invalidException 修复后仍无法解析时抛出的异常，由各接口提供各自的错误文案
+     * @return 可被 Jackson 直接解析的 JSON 字符串
+     */
+    private String repairModelJson(
+            String rawResponse,
+            Supplier<ResponseStatusException> invalidException) {
+        String trimmed = rawResponse.trim();
+        // 剥掉起始围栏行（```json 或 ```），兼容缺少闭合围栏的截断输出。
+        if (trimmed.startsWith("```")) {
+            int firstLineEnd = trimmed.indexOf('\n');
+            trimmed = firstLineEnd >= 0 ? trimmed.substring(firstLineEnd + 1) : "";
+            trimmed = trimmed.trim();
+        }
+        if (trimmed.endsWith("```")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 3).trim();
+        }
+        if (trimmed.isEmpty()) {
+            throw invalidException.get();
+        }
+
+        // 尝试直接解析，成功则无需修复。
+        try {
+            objectMapper.readTree(trimmed);
+            return trimmed;
+        } catch (JsonProcessingException ignored) {
+            // 依次尝试提取主体、补齐闭合符。
+        }
+
+        // 模型可能在 JSON 前后夹杂说明文字：先截取首个 { 到最后一个 } 的主体重试。
+        String extracted = extractJsonObject(trimmed);
+        if (extracted != null) {
+            try {
+                objectMapper.readTree(extracted);
+                return extracted;
+            } catch (JsonProcessingException ignored) {
+                // 主体也不完整，继续走补齐逻辑。
+            }
+        }
+
+        String repaired = closeUnclosedJson(extracted != null ? extracted : trimmed);
+        try {
+            objectMapper.readTree(repaired);
+            log.warn("模型输出疑似被截断，已自动补齐 JSON 结构");
+            return repaired;
+        } catch (JsonProcessingException exception) {
+            // 修复后仍无法解析，按原始失败路径报错。
+            throw invalidException.get();
+        }
+    }
+
+    /** 从夹杂说明文字的输出中截取首个 "{" 到最后一个 "}" 的 JSON 主体；找不到大括号时返回 null。 */
+    private String extractJsonObject(String content) {
+        int start = content.indexOf('{');
+        int end = content.lastIndexOf('}');
+        return start >= 0 && end > start ? content.substring(start, end + 1) : null;
+    }
+
+    /**
+     * 按括号栈补齐截断 JSON 缺失的闭合符。
+     *
+     * <p>逐字符扫描：字符串内只关心未闭合的双引号（转义符跳过下一个字符），
+     * 字符串外记录对象/数组嵌栈。扫描结束后依栈逆序闭合；若停在字符串中间，
+     * 先补一个收尾双引号。值被截断时（如逗号或冒号后截断）由 Jackson 修复后再校验，
+     * 仍失败则走原始报错。</p>
+     */
+    private String closeUnclosedJson(String input) {
+        StringBuilder repaired = new StringBuilder(input);
+        Deque<Character> stack = new ArrayDeque<>();
+        boolean inString = false;
+        boolean escaped = false;
+
+        for (int i = 0; i < input.length(); i++) {
+            char current = input.charAt(i);
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                } else if (current == '\\') {
+                    escaped = true;
+                } else if (current == '"') {
+                    inString = false;
+                }
+                continue;
+            }
+            switch (current) {
+                case '"' -> inString = true;
+                case '{' -> stack.push('}');
+                case '[' -> stack.push(']');
+                // push/pop 的栈顶在头部；只有栈顶恰好是对应闭合符时才弹出，保证嵌套顺序正确。
+                case '}' -> {
+                    if (!stack.isEmpty() && stack.peek() == '}') {
+                        stack.pop();
+                    }
+                }
+                case ']' -> {
+                    if (!stack.isEmpty() && stack.peek() == ']') {
+                        stack.pop();
+                    }
+                }
+                default -> { }
+            }
+        }
+
+        // 停在转义符上：先补一个反斜杠，避免收尾引号被解析成转义字符。
+        if (escaped) {
+            repaired.append('\\');
+        }
+        // 停在字符串中间：补收尾引号使字符串合法闭合。
+        if (inString || escaped) {
+            repaired.append('"');
+        }
+
+        // 截尾悬空符号：冒号后截断补 null，逗号/开头括号后截断直接去掉。
+        String cleaned = repaired.toString().stripTrailing();
+        while (cleaned.endsWith(":")) {
+            cleaned = cleaned + "null";
+            break;
+        }
+        cleaned = cleaned.replaceAll(",\\s*$", "");
+
+        // 依栈逆序补齐闭合符。
+        StringBuilder closed = new StringBuilder(cleaned);
+        while (!stack.isEmpty()) {
+            closed.append(stack.pop());
+        }
+        return closed.toString();
+    }
+
+    /** 避免把原始模型返回内容直接暴露给浏览器。 */
+    private ResponseStatusException invalidImageParseResponse() {
+        return new ResponseStatusException(
+                HttpStatus.BAD_GATEWAY,
+                "图像解析服务返回的数据格式不正确");
     }
 }
