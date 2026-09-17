@@ -22,6 +22,9 @@ public class ParseImageResponse {
     /** 结构化标签提示词列表。 */
     private List<TagItem> tags;
 
+    /** 上传到 OSS 的图片访问地址，用于后续 AI 补全和模板发布。 */
+    private String imageUrl;
+
     /** 单条结构化标签。 */
     @Data
     @NoArgsConstructor

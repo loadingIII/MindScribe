@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Bookmark, Check, Copy, Grid2X2, List, Palette, Plus, Search, X, Pencil, Trash2 } from "lucide-react";
+import { ArrowRight, Bookmark, Check, Copy, Grid2X2, ImagePlus, List, Palette, Plus, Search, X, Pencil, Trash2, Upload } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { ImagePreview, TemplatePublishModal } from "../legacy/LegacyApp";
 import { useStore } from "../../store/AppStore";
 import { clearCachedState } from "../../store/AppStore";
+import { saveDraft, getDraftsByType, deleteDraft, formatRelativeTime, cleanupOldDrafts } from "../../utils/draftStorage";
 
 const categories = ["全部", "头像", "壁纸", "海报", "插画", "明信片", "小红书插图"];
-const sources = ["全部", "官方", "社区", "我的"];
+const sources = ["全部", "社区", "我的"];
 
 function excerpt(value, max = 100) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
@@ -71,6 +73,32 @@ export default function PromptsFeature() {
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
+  // 当前放大查看的封面图：{ src, title }，由抽屉封面点击触发。
+  const [previewImage, setPreviewImage] = useState(null);
+  
+  // 图像解析相关状态
+  const [parseImage, setParseImage] = useState(null); // 待解析的图片文件
+  const [parseImagePreview, setParseImagePreview] = useState(""); // 图片预览URL
+  const [parseIntent, setParseIntent] = useState(""); // 用户的解析意图
+  const [parsing, setParsing] = useState(false); // 解析中
+  const [parseResult, setParseResult] = useState(null); // 解析结果 { analysisSummary, tags: [{tagName, tagValue}] }
+  const [isDragging, setIsDragging] = useState(false); // 拖拽状态
+  
+  // 草稿列表
+  const [drafts, setDrafts] = useState([]);
+  // 正在发布为模板的草稿：非空时渲染发布弹窗。
+  const [publishDraft, setPublishDraft] = useState(null);
+
+  useEffect(() => {
+    // 加载草稿列表并清理过期草稿
+    cleanupOldDrafts();
+    setDrafts(getDraftsByType("parse"));
+  }, []);
+  
+  // 刷新草稿列表
+  function refreshDrafts() {
+    setDrafts(getDraftsByType("parse"));
+  }
 
   useEffect(() => {
     let active = true;
@@ -236,7 +264,7 @@ export default function PromptsFeature() {
   }
 
   async function deleteTemplate(item) {
-    if (!window.confirm(`确定删除“${item.title}”吗？`)) return;
+    if (!window.confirm(`确定删除"${item.title}"吗？`)) return;
     try {
       const response = await fetch(`/prompt_templates/${item.id}`, { method: "DELETE", credentials: "include" });
       if (!response.ok) throw new Error("模板删除失败");
@@ -244,10 +272,211 @@ export default function PromptsFeature() {
     } catch (error) { setToast(error.message || "模板删除失败"); }
   }
 
+  // 图像解析相关函数
+  function handleParseImageSelect(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    // 检查文件类型
+    if (!file.type.startsWith("image/")) {
+      setToast("请选择图片文件");
+      return;
+    }
+    
+    // 设置图片和预览
+    setParseImage(file);
+    const reader = new FileReader();
+    reader.onload = (e) => setParseImagePreview(e.target.result);
+    reader.readAsDataURL(file);
+    
+    // 清空之前的结果
+    setParseResult(null);
+  }
+
+  function handleParseDrop(event) {
+    event.preventDefault();
+    setIsDragging(false);
+    
+    const file = event.dataTransfer.files?.[0];
+    if (!file) return;
+    
+    if (!file.type.startsWith("image/")) {
+      setToast("请拖入图片文件");
+      return;
+    }
+    
+    setParseImage(file);
+    const reader = new FileReader();
+    reader.onload = (e) => setParseImagePreview(e.target.result);
+    reader.readAsDataURL(file);
+    setParseResult(null);
+  }
+
+  function handleParseDragOver(event) {
+    event.preventDefault();
+    setIsDragging(true);
+  }
+
+  function handleParseDragLeave(event) {
+    event.preventDefault();
+    setIsDragging(false);
+  }
+
+  function clearParseImage() {
+    setParseImage(null);
+    setParseImagePreview("");
+    setParseResult(null);
+    setParseIntent("");
+  }
+
+  async function executeImageParse() {
+    if (!parseImage) {
+      setToast("请先上传图片");
+      return;
+    }
+
+    setParsing(true);
+    try {
+      // 后端 /ai/prompts/parse-image 接收 multipart 表单（userPrompt + image 文件），
+      // 图片由后端统一上传 OSS，前端无需单独上传。
+      const form = new FormData();
+      form.append("userPrompt", parseIntent.trim() || "全面解析这张图片，提取可用于生成类似图片的提示词");
+      form.append("image", parseImage);
+
+      const response = await fetch("/ai/prompts/parse-image", {
+        method: "POST",
+        credentials: "include",
+        body: form
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "图像解析失败");
+
+      // 后端返回 { analysisSummary, tags: [{tagName, tagValue}], imageUrl }
+      if (!data.tags?.length) throw new Error("未解析出有效的标签提示词");
+      setParseResult(data);
+      setToast("解析完成");
+    } catch (error) {
+      setToast(error.message || "图像解析失败，请稍后重试");
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  function saveParseToDraftStorage() {
+    if (!parseResult) return;
+
+    // 将解析结果保存到草稿；后端标签为 { tagName, tagValue } 驼峰格式。
+    const tags = (parseResult.tags || []).map((tag) => ({
+      key: tag.tagName || "",
+      value: tag.tagValue || ""
+    })).filter((tag) => tag.key);
+
+    // 构建"用户输入"芯片的内容：只放总结文本
+    const userPrompt = parseResult.analysisSummary || "";
+
+    const draftData = {
+      prompt: userPrompt,
+      tags: tags,
+      references: parseResult.imageUrl ? [
+        { 
+          id: `parse-ref-${Date.now()}`,
+          url: parseResult.imageUrl,  // 使用后端返回的 OSS URL，而不是本地 blob
+          type: "image",
+          name: parseImage?.name || "解析的图片",
+          file: null  // OSS 图片无需保留本地 File 对象
+        }
+      ] : [],
+      source: "图像解析",
+      model: "gpt-image-2",
+      size: "auto",
+      quality: "auto",
+      mode: "文本生图"
+    };
+
+    // 保存到 localStorage 并获取草稿 ID
+    const draftId = saveDraft(draftData);
+    
+    if (draftId) {
+      // 关闭解析对话框并跳转到提示词构建页，传递草稿 ID
+      setAnalysisOpen(false);
+      clearParseImage();
+      refreshDrafts(); // 刷新草稿列表
+      navigate(`/create/prompt-builder?draft=${draftId}`);
+      setToast("解析结果已保存为草稿");
+    } else {
+      setToast("草稿保存失败，请重试");
+    }
+  }
+
+  // 将草稿发布为模板：打开与创作页共用的"发布提示词"弹窗，草稿内容预填。
+  function publishDraftAsTemplate(draft) {
+    setPublishDraft(draft);
+  }
+
+
   return <section className="prompt-library-v2">
     <section className="prompt-controls-v2"><div className="prompt-search-v2"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题、描述或标签" /></div><div className="prompt-control-actions"><select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="排序"><option value="recent">最近更新</option><option value="saved">收藏优先</option><option value="title">按名称</option></select><button className={view === "grid" ? "active" : ""} onClick={() => setView("grid")} aria-label="网格视图"><Grid2X2 size={16} /></button><button className={view === "list" ? "active" : ""} onClick={() => setView("list")} aria-label="列表视图"><List size={17} /></button><button className="new-prompt-v2" onClick={() => openEditor()}><Plus size={16} />新建模板</button></div><div className="prompt-filter-line"><div className="prompt-tabs-v2">{sources.map((item) => <button key={item} className={source === item ? "active" : ""} onClick={() => setSource(item)}>{item}<small>{item === "全部" ? prompts.length : prompts.filter((p) => p.source === item).length}</small></button>)}</div><div className="prompt-categories-v2">{categories.map((item) => <button key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div></div></section>
-    <div className="prompt-content-v2"><main>{loading && <div className="prompt-empty-v2"><strong>正在加载提示词库…</strong></div>}{!loading && loadError && <div className="prompt-empty-v2"><Search size={22} /><strong>{loadError}</strong><span>请确认后端服务已启动。</span></div>}<div className={`prompt-grid-v2 ${view === "list" ? "is-list" : ""}`}>{visible.map((item) => <article className="prompt-card-v2" key={item.id} onClick={() => setSelected(item)}><div className="prompt-cover-v2">{item.cover && <img src={item.cover} alt="" />}<div><span>{item.source} · {item.category}</span><button onClick={(event) => { event.stopPropagation(); toggleFavorite(item); }} className={item.saved ? "saved" : ""} aria-label="收藏"><Bookmark size={16} fill={item.saved ? "currentColor" : "none"} /></button></div></div><div className="prompt-card-body-v2"><div className="prompt-title-v2"><h3>{item.title}</h3><small>{item.prompt.length} 字</small></div><p>{excerpt(item.description || item.prompt)}</p><div className="prompt-tags-v2">{(item.tags || []).slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="prompt-actions-v2"><button onClick={(event) => { event.stopPropagation(); copyPrompt(item); }}><Copy size={14} />复制</button><button onClick={(event) => { event.stopPropagation(); usePrompt(item); }}>套用构建器 <ArrowRight size={14} /></button></div></div></article>)}</div>{!loading && !loadError && !visible.length && <div className="prompt-empty-v2"><Search size={22} /><strong>提示词库还是空的</strong><span>创建第一个模板后，它会显示在这里。</span></div>}</main><aside className="prompt-rail-v2"><div className="prompt-insight-v2"><Palette size={20} /><span>BUILDING WITH CONTEXT</span><h2>从一张图开始，<em>反向读出它的语言。</em></h2><p>上传参考图，拆解主体、镜头、光线与材质，再保存为可调用的模板。</p><button onClick={() => setAnalysisOpen(true)}>打开图像解析 <ArrowRight size={15} /></button></div><div className="prompt-recent-v2"><div><b>最近使用</b><span>查看全部 →</span></div>{prompts.slice(0, 3).map((item) => <button key={item.id} onClick={() => setSelected(item)}><img src={item.cover} alt="" /><span><strong>{item.title}</strong><small>刚刚使用</small></span><ArrowRight size={14} /></button>)}</div></aside></div>
-    {(selected || editor || analysisOpen) && <div className="prompt-overlay-v2" onMouseDown={closeOverlay}><aside className="prompt-drawer-v2" onMouseDown={(event) => event.stopPropagation()}><button className="drawer-close-v2" onClick={closeOverlay}><X size={18} /></button>{selected && <><img className="drawer-cover-v2" src={selected.cover} alt="" /><span className="drawer-kicker-v2">{selected.source} · {selected.category}</span><h2>{selected.title}</h2><p className="drawer-prompt-v2">{selected.prompt}</p><div className="prompt-tags-v2">{(selected.tags || []).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="drawer-buttons-v2"><button onClick={() => usePrompt(selected)}>套用到创作 <ArrowRight size={15} /></button>{selected.editable && <><button onClick={() => openEditor(selected)}><Pencil size={15} />编辑</button><button onClick={() => deleteTemplate(selected)}><Trash2 size={15} />删除</button></>}</div></>}{editor && <form className="new-template-v2" onSubmit={saveTemplate}>
+    <div className="prompt-content-v2"><main>{loading && <div className="prompt-empty-v2"><strong>正在加载提示词库…</strong></div>}{!loading && loadError && <div className="prompt-empty-v2"><Search size={22} /><strong>{loadError}</strong><span>请确认后端服务已启动。</span></div>}<div className={`prompt-grid-v2 ${view === "list" ? "is-list" : ""}`}>{visible.map((item) => <article className="prompt-card-v2" key={item.id} onClick={() => setSelected(item)}><div className="prompt-cover-v2">{item.cover && <img src={item.cover} alt="" />}<div><span>{item.source} · {item.category}</span><button onClick={(event) => { event.stopPropagation(); toggleFavorite(item); }} className={item.saved ? "saved" : ""} aria-label="收藏"><Bookmark size={16} fill={item.saved ? "currentColor" : "none"} /></button></div></div><div className="prompt-card-body-v2"><div className="prompt-title-v2"><h3>{item.title}</h3><small>{item.prompt.length} 字</small></div><p>{excerpt(item.description || item.prompt)}</p><div className="prompt-tags-v2">{(item.tags || []).slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="prompt-actions-v2"><button onClick={(event) => { event.stopPropagation(); copyPrompt(item); }}><Copy size={14} />复制</button><button onClick={(event) => { event.stopPropagation(); usePrompt(item); }}>套用构建器 <ArrowRight size={14} /></button></div></div></article>)}</div>{!loading && !loadError && !visible.length && <div className="prompt-empty-v2"><Search size={22} /><strong>提示词库还是空的</strong><span>创建第一个模板后，它会显示在这里。</span></div>}</main><aside className="prompt-rail-v2"><div className="prompt-insight-v2 is-clickable" role="button" tabIndex={0} onClick={() => setAnalysisOpen(true)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setAnalysisOpen(true); } }}><Palette size={20} /><span>BUILDING WITH CONTEXT</span><h2>从一张图开始，<em>反向读出它的语言。</em></h2><p>上传参考图，拆解主体、镜头、光线与材质，再保存为可调用的模板。</p><button type="button" onClick={(event) => { event.stopPropagation(); setAnalysisOpen(true); }}>打开图像解析 <ArrowRight size={15} /></button></div>
+    
+    {/* 草稿列表区域 */}
+    <div className="prompt-drafts-v2">
+      <div className="prompt-drafts-header">
+        <b>图像解析</b>
+        <span>{drafts.length} 个草稿</span>
+      </div>
+      {drafts.length > 0 ? (
+        drafts.map((draft) => (
+          <div key={draft.id} className="prompt-draft-item">
+            <button 
+              className="draft-main-content"
+              onClick={() => {
+                navigate(`/create/prompt-builder?draft=${draft.id}`);
+              }}
+            >
+              {draft.references?.[0]?.url && (
+                <img src={draft.references[0].url} alt="" />
+              )}
+              <span>
+                <strong>{draft.prompt.slice(0, 20)}...</strong>
+                <small>{formatRelativeTime(draft.createdAt)}</small>
+              </span>
+            </button>
+            <div className="draft-actions">
+              <button
+                className="draft-publish-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  publishDraftAsTemplate(draft);
+                }}
+                title="发布为模板"
+              >
+                <Upload size={14} />
+              </button>
+              <button
+                className="draft-delete-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteDraft(draft.id);
+                  refreshDrafts();
+                  setToast("草稿已删除");
+                }}
+                title="删除草稿"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="prompt-drafts-empty">
+          <small>解析图片后，草稿会保存在这里</small>
+        </div>
+      )}
+    </div>
+    
+    <div className="prompt-recent-v2"><div><b>最近使用</b><span>查看全部 →</span></div>{prompts.slice(0, 3).map((item) => <button key={item.id} onClick={() => setSelected(item)}><img src={item.cover} alt="" /><span><strong>{item.title}</strong><small>刚刚使用</small></span><ArrowRight size={14} /></button>)}</div></aside></div>
+    {(selected || editor || analysisOpen) && <div className="prompt-overlay-v2" onMouseDown={closeOverlay}><aside className="prompt-drawer-v2" onMouseDown={(event) => event.stopPropagation()}><button className="drawer-close-v2" onClick={closeOverlay}><X size={18} /></button>{selected && <>{selected.cover && <img className="drawer-cover-v2 is-clickable" src={selected.cover} alt={selected.title} title="点击放大查看" onClick={() => setPreviewImage({ src: selected.cover, title: selected.title })} />}<span className="drawer-kicker-v2">{selected.source} · {selected.category}</span><h2>{selected.title}</h2><p className="drawer-prompt-v2">{selected.prompt}</p><div className="prompt-tags-v2">{(selected.tags || []).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="drawer-buttons-v2"><button onClick={() => usePrompt(selected)}>套用到创作 <ArrowRight size={15} /></button>{selected.editable && <><button onClick={() => openEditor(selected)}><Pencil size={15} />编辑</button><button onClick={() => deleteTemplate(selected)}><Trash2 size={15} />删除</button></>}</div></>}{editor && <form className="new-template-v2" onSubmit={saveTemplate}>
   {/* 表单头：英文 kicker + 衬线标题，与抽屉详情区保持同一版式。 */}
   <header className="drawer-form-head">
     <span className="drawer-kicker-v2">{editor.id ? "EDIT TEMPLATE" : "NEW TEMPLATE"}</span>
@@ -303,6 +532,92 @@ export default function PromptsFeature() {
     </button>}
     <button className="drawer-submit-v2" type="submit" disabled={saving}><Check size={16} />{saving ? "保存中…" : "保存模板"}</button>
   </div>
-</form>}{analysisOpen && <div className="analysis-v2"><Palette size={25} /><h2>解析一张图片</h2><p>上传作品后，AI 会提取主体、构图、光线与材质，生成可复用的提示词。</p><label className="analysis-upload-v2">选择图片<input type="file" accept="image/*" onChange={() => setToast("图像解析入口已准备接入")} /></label></div>}</aside></div>}
+</form>}{analysisOpen && <div className="analysis-panel-v2">
+  <header className="analysis-header">
+    <Palette size={25} />
+    <h2>解析一张图片</h2>
+    <p>上传作品后，AI 会提取主体、构图、光线与材质，生成可复用的提示词。</p>
+  </header>
+  
+  {/* 图片上传区 */}
+  <div 
+    className={`analysis-upload-zone ${isDragging ? "is-dragging" : ""} ${parseImagePreview ? "has-image" : ""}`}
+    onDrop={handleParseDrop}
+    onDragOver={handleParseDragOver}
+    onDragLeave={handleParseDragLeave}
+  >
+    {parseImagePreview ? (
+      <div className="analysis-image-preview">
+        <img src={parseImagePreview} alt="待解析图片" />
+        <button 
+          type="button" 
+          className="analysis-clear-image" 
+          onClick={clearParseImage}
+          disabled={parsing}
+        >
+          <X size={16} />
+        </button>
+      </div>
+    ) : (
+      <label className="analysis-upload-label">
+        <div className="analysis-upload-icon"><ImagePlus size={40} strokeWidth={1.5} /></div>
+        <span>点击选择或拖入图片</span>
+        <small>支持 JPG、PNG、WebP 格式</small>
+        <input 
+          type="file" 
+          accept="image/*" 
+          hidden
+          onChange={handleParseImageSelect}
+        />
+      </label>
+    )}
+  </div>
+  
+  {/* 用户意图输入 */}
+  {parseImagePreview && (
+    <div className="analysis-intent-input">
+      <label>
+        <span className="template-form-label-text">解析要求（可选）</span>
+        <textarea
+          value={parseIntent}
+          onChange={(e) => setParseIntent(e.target.value)}
+          placeholder="例如：请重点分析人物的表情和光线氛围..."
+          rows={3}
+          disabled={parsing}
+        />
+      </label>
+    </div>
+  )}
+  
+  {/* 解析按钮或查看按钮 */}
+  {parseImagePreview && (
+    <button 
+      type="button"
+      className="analysis-execute-btn"
+      onClick={parseResult ? saveParseToDraftStorage : executeImageParse}
+      disabled={parsing}
+    >
+      {parsing ? "解析中..." : parseResult ? "解析成功，点击查看" : "开始解析"}
+    </button>
+  )}
+</div>}</aside></div>}
+    {/* 草稿发布弹窗：复用创作页的"发布提示词"弹窗，发布成功后删除对应草稿。 */}
+    {publishDraft && (
+      <TemplatePublishModal
+        onClose={() => setPublishDraft(null)}
+        prompt={publishDraft.prompt}
+        tags={publishDraft.tags || []}
+        coverImages={(publishDraft.references || []).map((item) => item.url).filter(Boolean)}
+        referenceSlots={(publishDraft.references || []).map((item, index) => ({ slotKey: `reference_${index + 1}`, label: item.name || `参考图${index + 1}`, required: false, maxCount: 1 }))}
+        modelDefaults={{ model: publishDraft.model || "gpt-image-2", mode: publishDraft.mode || "文本生图" }}
+        onPublished={() => {
+          deleteDraft(publishDraft.id);
+          refreshDrafts();
+          setPublishDraft(null);
+        }}
+      />
+    )}
+    {/* 封面大图预览：支持滚轮/按钮缩放与拖动查看。 */}
+    {previewImage && <ImagePreview result={{ image: previewImage.src, title: previewImage.title }} filename={`${previewImage.title}.png`} onClose={() => setPreviewImage(null)} />}
   </section>;
 }

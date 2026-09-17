@@ -396,8 +396,10 @@ public class LlmController {
                     .collect(Collectors.joining())
                     .block();
 
-            // 4. 解析响应 JSON
-            return parseImageParseResponse(response);
+            // 4. 解析响应 JSON 并附加 OSS 图片地址
+            ParseImageResponse parseResponse = parseImageParseResponse(response);
+            parseResponse.setImageUrl(imageUrl);
+            return parseResponse;
 
         } catch (ResponseStatusException exception) {
             throw exception;
