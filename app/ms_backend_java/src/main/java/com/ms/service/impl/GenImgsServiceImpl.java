@@ -9,7 +9,10 @@ import com.ms.pojo.vo.ThreadVO;
 import com.ms.pojo.entity.AttemptEntity;
 import com.ms.pojo.entity.ThreadEntity;
 import com.ms.mapper.GenImgsMapper;
+import com.ms.pojo.exception.InsufficientCreditException;
+import com.ms.service.CreditService;
 import com.ms.service.GenImgsService;
+import com.ms.service.PricingService;
 import com.ms.utils.HttpClientUtil;
 import com.ms.utils.OssStorageUtil;
 import com.ms.utils.LogUtil;
@@ -44,16 +47,21 @@ public class GenImgsServiceImpl implements GenImgsService {
     private final String serviceUrl;
     private final OssStorageUtil oss;
     private final GenImgsMapper dbMapper;
+    private final CreditService creditService;
+    private final PricingService pricingService;
     private final Map<String, List<AttemptVO>> threads = new ConcurrentHashMap<>();
     private final Set<String> missingPythonTasks = new ConcurrentSkipListSet<>();
 
     public GenImgsServiceImpl(HttpClientUtil http, ObjectMapper mapper, OssStorageUtil oss, GenImgsMapper genImgsMapper,
+                              CreditService creditService, PricingService pricingService,
                               @Value("${image-generation.base-url}") String host,
                               @Value("${image-generation.port}") int port) {
         this.http = http;
         this.mapper = mapper;
         this.oss = oss;
         this.dbMapper = genImgsMapper;
+        this.creditService = creditService;
+        this.pricingService = pricingService;
         this.serviceUrl = host.replaceAll("/$", "") + ":" + port;
     }
 
@@ -104,23 +112,35 @@ public class GenImgsServiceImpl implements GenImgsService {
         return mapper.readValue(response.body(), TaskVO.class);
     }
 
-    /** 创建 Thread，并记录首个 Attempt。 */
+    /** 创建 Thread，并记录首个 Attempt；提交前预扣积分，提交失败自动返还。 */
     public ThreadVO createThread(String userId, GenerateImageDTO request) throws IOException, InterruptedException {
         String threadId = UUID.randomUUID().toString();
         log.info("开始创建图片线程，threadId={} userId={}", threadId, userId);
+        // 参考图上传属于扣减前动作，但参考图记录只进内存列表，不落库；
+        // 余额不足抛异常时整体中断，不产生 Thread/Attempt 副作用。
         List<String> referenceUrls = new ArrayList<>();
-        AttemptVO attempt = submitAttempt(request, referenceUrls);
+        // 预生成 attemptId：积分流水要在 Attempt 落库前就能关联它。
+        String attemptId = UUID.randomUUID().toString();
+        int cost = quote(userId, request, attemptId);
+        AttemptVO attempt;
+        try {
+            attempt = submitAttempt(request, referenceUrls, attemptId);
+        } catch (IOException | InterruptedException | RuntimeException e) {
+            // 任务提交失败必须当场返还，用户无感知扣分。
+            creditService.refund(userId, attemptId, "任务提交失败返还");
+            throw e;
+        }
         ThreadEntity thread = toThread(threadId, userId, request, referenceUrls);
         dbMapper.insertThread(thread);
         dbMapper.insertAttempt(toAttempt(attempt, request, threadId, 1));
         List<AttemptVO> attempts = new ArrayList<>();
         attempts.add(attempt);
         threads.put(threadId, attempts);
-        log.info("图片线程创建成功，threadId={} attempts={}", threadId, attempts.size());
+        log.info("图片线程创建成功，threadId={} attempts={} cost={}", threadId, attempts.size(), cost);
         return new ThreadVO(threadId, attempts);
     }
 
-    /** 重试时追加 Attempt，保留历史尝试。 */
+    /** 重试时追加 Attempt，保留历史尝试；每次重试独立计价预扣。 */
     public ThreadVO retry(String userId, String threadId, GenerateImageDTO request) throws IOException, InterruptedException {
         requireThreadOwner(userId, threadId);
         // 每次重试都从 MySQL 读取历史，避免进程内缓存成为业务状态来源。
@@ -133,8 +153,17 @@ public class GenImgsServiceImpl implements GenImgsService {
         for (AttemptEntity item : stored) attempts.add(toAttemptVO(item, parseResultUrls(item.getResults())));
         Collections.reverse(attempts);
         List<String> referenceUrls = new ArrayList<>();
-        attempts.add(submitAttempt(request, referenceUrls));
-        AttemptVO attempt = attempts.get(attempts.size() - 1);
+        // 预生成 attemptId 并预扣积分；提交失败当场返还。
+        String attemptId = UUID.randomUUID().toString();
+        int cost = quote(userId, request, attemptId);
+        AttemptVO attempt;
+        try {
+            attempt = submitAttempt(request, referenceUrls, attemptId);
+        } catch (IOException | InterruptedException | RuntimeException e) {
+            creditService.refund(userId, attemptId, "任务提交失败返还");
+            throw e;
+        }
+        attempts.add(attempt);
         ThreadEntity thread = dbMapper.findThread(threadId);
         int attemptNo = thread == null ? attempts.size() : thread.getAttemptCount() + 1;
         dbMapper.insertAttempt(toAttempt(attempt, request, threadId, attemptNo));
@@ -235,6 +264,10 @@ public class GenImgsServiceImpl implements GenImgsService {
                     if (!"running".equals(attempt.status())) {
                         update.setStartedAt(finishedAt);
                     }
+                    // 首次观察到 failed 终态时返还预扣积分；幂等由流水唯一键保证。
+                    if ("failed".equals(task.status())) {
+                        creditService.refund(userId, attempt.attemptId(), "生成失败返还");
+                    }
                 }
                 List<Map<String, Object>> resultImages = new ArrayList<>();
                 List<String> urls = normalizedUrls;
@@ -257,10 +290,11 @@ public class GenImgsServiceImpl implements GenImgsService {
         return new ThreadVO(threadId, refreshed);
     }
 
-    private AttemptVO submitAttempt(GenerateImageDTO request, List<String> referenceUrls) throws IOException, InterruptedException {
+    /** 提交 Python 任务并构造 Attempt VO；attemptId 由外部预生成，供积分流水提前关联。 */
+    private AttemptVO submitAttempt(GenerateImageDTO request, List<String> referenceUrls, String attemptId) throws IOException, InterruptedException {
         CreateTaskVO task = create(request, referenceUrls);
         return new AttemptVO(
-            UUID.randomUUID().toString(),
+            attemptId,
             task.taskId(),
             PENDING,
             List.of(),
@@ -271,6 +305,16 @@ public class GenImgsServiceImpl implements GenImgsService {
             request.getQuality(),
             request.getOutputFormat()
         );
+    }
+
+    /** 计价并预扣积分；模式的判定与 Attempt 落库保持一致（有参考图即图生图）。 */
+    private int quote(String userId, GenerateImageDTO request, String attemptId) {
+        String mode = referenceImageCount(request) > 0 ? PricingService.MODE_IMAGE_TO_IMAGE : PricingService.MODE_TEXT_TO_IMAGE;
+        int n = request.getN() == null ? 1 : request.getN();
+        int cost = pricingService.quote(PricingService.ACTION_IMAGE_GENERATION, request.getModel(), mode,
+                request.getSize(), request.getQuality(), n);
+        creditService.deduct(userId, attemptId, cost);
+        return cost;
     }
 
     @Override

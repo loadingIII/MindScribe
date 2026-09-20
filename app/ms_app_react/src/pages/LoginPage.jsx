@@ -8,7 +8,7 @@ import { useStore } from "../store/AppStore";
 export default function LoginPage({ onLogin }) {
   const navigate = useNavigate();
   // 拿到创作工作台重置能力：换号登录前先清空上一个账号的创作数据。
-  const { resetWorkspace } = useStore();
+  const { resetWorkspace, refreshBalance } = useStore();
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -54,6 +54,8 @@ export default function LoginPage({ onLogin }) {
       localStorage.setItem("mindscribe-user", JSON.stringify(user));
       // 切换到新账号前先重置创作工作台，确保创作页挂载时读不到上一个账号的缓存。
       resetWorkspace();
+      // 登录成功即拉取该账号的积分余额，侧边栏与个人页立即可见。
+      refreshBalance();
       onLogin(user);
       navigate(ROUTES.create, { replace: true });
     } catch (requestError) { setError(requestError.message || "登录失败，请稍后重试"); }

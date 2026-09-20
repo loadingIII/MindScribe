@@ -346,7 +346,7 @@ export function LegacyApp() {
 
 export function CreatePage() {
   // 渲染多模式生图工作台，并模拟异步生成任务。
-  const { draft, setDraft, credits, setCredits, addLibraryWork, setToast } = useStore();
+  const { draft, setDraft, credits, setCredits, addLibraryWork, setToast, refreshBalance } = useStore();
   const navigate = useNavigate();
   const mode = "创作";
   // 提示词以全局草稿为唯一数据源：输入实时写回 draft，跳转提示词构建页时内容保持一致。
@@ -391,9 +391,16 @@ export function CreatePage() {
   const [editingTaskName, setEditingTaskName] = useState(false);
   const [threadEdit, setThreadEdit] = useState(null);
   const [templatePublishOpen, setTemplatePublishOpen] = useState(false);
+  // 本次生成的积分消耗：estimate 为提交前预估，lastCost 为提交后实际消耗（由后端原子扣减）。
+  const [estimate, setEstimate] = useState(null);
+  const [lastCost, setLastCost] = useState(null);
   // 提示词构建页带回的结构化标签，用于画布顶部的"标签栏"展示。
   const draftTags = Array.isArray(draft.tags) ? draft.tags : [];
   const tagChips = buildTagChips(draftTags);
+  // 画布状态栏的积分文案：生成中/完成后展示本次实际消耗，其余展示后端实时预估。
+  const costLabel = (status === "queued" || status === "working" || status === "done") && lastCost != null
+    ? `本次消耗 ${lastCost} 积分`
+    : estimate != null ? `预计消耗 ${estimate} 积分` : "积分预估中…";
   const richPromptRef = useRef(null);
   const promptRef = useRef(null);
   const canvasRef = useRef(null);
@@ -585,6 +592,20 @@ export function CreatePage() {
   }, [prompt, files]);
 
   useEffect(() => {
+    // 参数变化时向后端实时预估本次消耗，展示在画布状态栏；计价规则与后端扣减保持同源。
+    // 注意：size/quality 取值已与生图请求一致（normalize 后的值），预估即实扣口径。
+    const size = normalizeSize(draft.size);
+    const quality = normalizeQuality(draft.quality);
+    const mode = files.length ? "image-to-image" : "text-to-image";
+    let cancelled = false;
+    fetch(`/credits/estimate?model=${encodeURIComponent(draft.model || "gpt-image-2")}&size=${encodeURIComponent(size)}&quality=${encodeURIComponent(quality)}&mode=${mode}&n=${count}`, { credentials: "include" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => { if (!cancelled && data && typeof data.cost === "number") setEstimate(data.cost); })
+      .catch(() => { /* 预估失败不影响生成，仅不展示数字。 */ });
+    return () => { cancelled = true; };
+  }, [draft.model, draft.size, draft.quality, files.length, count]);
+
+  useEffect(() => {
     // 仅轮询当前选中的 Attempt，避免新任务回显旧 Attempt 的结果。
     if (!threadId || !attemptId || status === "done" || status === "failed") return undefined;
     // 记录轮询开始时间，超过 90 秒未完成则自动标记为超时失败。
@@ -619,6 +640,8 @@ export function CreatePage() {
         if (currentStatus === "failed" && currentAttempt.error && failedAttemptRef.current !== attemptId) {
           failedAttemptRef.current = attemptId;
           setToast(`生成失败：${currentAttempt.error}`);
+          // 后端在首次观察到失败终态时会返还预扣积分，这里同步余额展示。
+          refreshBalance();
         }
         setTaskThreads((items) => {
           let changed = false;
@@ -757,8 +780,9 @@ export function CreatePage() {
       await retryThread(threadId);
       return;
     }
-    const spend = count * (mode === "批量出图" ? 24 : 12);
-    if (credits < spend) { setToast("算力不足，请前往个人中心查看权益"); return; }
+    const spend = estimate ?? count * 12;
+    // 余额仅作前端预检提示；实际扣减与校验以后端原子扣减为准。
+    if (credits < spend) { setToast("积分不足，请前往个人中心查看权益"); return; }
     const generatedTitle = defaultThreadTitle(taskThreads);
     setTaskName(generatedTitle);
     const form = new FormData();
@@ -781,7 +805,6 @@ export function CreatePage() {
     setWorkspaceView("results");
     setWorkspaceOpen(true);
     setDraft({ ...draft, prompt, mode, additionalSystemPrompt });
-    setCredits(credits - spend);
     try {
       const response = await fetch("/gen_imgs/threads", { method: "POST", body: form });
       if (!response.ok) {
@@ -797,7 +820,15 @@ export function CreatePage() {
       setWorkspaceThreadId(newThread.id);
       setAttemptId(newAttempt?.id || "");
       setTaskThreads((items) => [newThread, ...items]);
-    } catch (error) { setStatus("failed"); setToast(error.message); }
+      // 提交成功说明后端已按预估口径预扣积分，展示本次实际消耗并同步余额。
+      setLastCost(spend);
+      refreshBalance();
+    } catch (error) {
+      setStatus("failed");
+      setToast(error.message);
+      // 失败（含余额不足被拒）时同步一次余额，纠正本地预检可能产生的展示偏差。
+      refreshBalance();
+    }
   }
 
   async function retryThread(id) {
@@ -847,7 +878,10 @@ export function CreatePage() {
         setAttemptId(latestAttempt.id);
         setResults([]);
       }
-    } catch (error) { setStatus("failed"); setToast(error.message); }
+      // 重试同样按预估口径预扣积分，展示本次消耗并同步余额。
+      setLastCost(estimate ?? count * 12);
+      refreshBalance();
+    } catch (error) { setStatus("failed"); setToast(error.message); refreshBalance(); }
   }
 
   function startNewCreation() {
@@ -1005,7 +1039,7 @@ export function CreatePage() {
         {status === "idle" && !results.length && <div className="canvas-empty"><div className="empty-star"><Sparkles size={23} /></div><h2>在这里等待<br />一个新的视野。</h2><p>填写构想，或者添加一张参考图开始。</p></div>}
         {(status === "queued" || status === "working") && <div className="canvas-empty"><div className="orbit-loader"><span /></div><h2>{status === "queued" ? "灵感正在排队" : "画面正在显影"}</h2><p>{status === "queued" ? "任务将很快开始。" : "模型正在理解光线、构图与细节。"}</p></div>}
         {(status === "done" || results.length > 0) && <div className={`result-gallery count-${results.length}`}>{results.map((result) => <article className="result-image" key={result.id}><button className="result-image-preview" type="button" onClick={() => setPreviewResult(result)} aria-label={`预览${result.title}`}><img src={result.image} alt={result.title} /></button><div><span>{result.title}</span><button type="button" onClick={() => setToast("已收藏到个人画廊")} title="收藏"><Bookmark size={15} /></button><button type="button" onClick={() => downloadResultImage(result.image, `${safeDownloadName(taskName)}-${result.attemptNumber || 1}.png`)} title="下载"><Download size={15} /></button></div></article>)}</div>}
-        <div className="canvas-status"><span>状态：{status === "queued" ? "待生成" : status === "working" ? "生成中" : status === "done" ? "已生成" : status === "failed" ? "失败" : "待生成"}</span><span>消耗 {count * 12} 算力 · {files.length ? `${files.length} 张参考图已就绪` : "无需参考图"}</span></div>
+        <div className="canvas-status"><span>状态：{status === "queued" ? "待生成" : status === "working" ? "生成中" : status === "done" ? "已生成" : status === "failed" ? "失败" : "待生成"}</span><span>{costLabel} · {files.length ? `${files.length} 张参考图已就绪` : "无需参考图"}</span></div>
         </section>
       </div>
     </div>

@@ -26,6 +26,12 @@ public class GlobalExceptionHandler {
         return response(HttpStatus.BAD_REQUEST, "BAD_REQUEST", exception.getMessage());
     }
 
+    /** 处理积分不足或计价规则缺失：返回 409 与专用错误码，前端据此展示引导。 */
+    @ExceptionHandler(com.ms.pojo.exception.InsufficientCreditException.class)
+    public ResponseEntity<Map<String, String>> handleInsufficientCredit(com.ms.pojo.exception.InsufficientCreditException exception) {
+        return response(HttpStatus.CONFLICT, "INSUFFICIENT_CREDIT", exception.getMessage());
+    }
+
     /** 处理未被控制器显式转换的业务状态错误。 */
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<Map<String, String>> handleIllegalState(IllegalStateException exception) {

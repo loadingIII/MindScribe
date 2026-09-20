@@ -136,7 +136,7 @@ export function AppStore({ children }) {
     // 已上传或历史任务的参考图 URL 可安全持久化；本地 File 在保存时会被剥离。
     references: Array.isArray(initialDraft.references) ? initialDraft.references : []
   });
-  const [credits, setCredits] = useState(saved.credits ?? 2180);
+  const [credits, setCredits] = useState(saved.credits ?? 0);
   const [settings, setSettings] = useState(saved.settings || { public: true, remix: true, revealPrompt: true, downloads: true });
   const [following, setFollowing] = useState(saved.following || ["yun"]);
   const [toast, setToast] = useState("");
@@ -164,6 +164,16 @@ export function AppStore({ children }) {
     setFollowing(["yun"]);
   }, []);
 
+  // 从服务端同步积分余额：登录后与每次生成结束（终态/失败）时调用。
+  const refreshBalance = useCallback(async function refreshBalance() {
+    try {
+      const response = await fetch("/credits/balance", { credentials: "include" });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (typeof data?.balance === "number") setCredits(data.balance);
+    } catch { /* 网络异常时保留当前展示值，不影响页面使用。 */ }
+  }, []);
+
   // 仅持久化可恢复的远程 URL 与展示元数据；本地 File/blob 地址不写入 localStorage。
   const persistableReferences = (draft.references || [])
     .filter((item) => item?.url && !String(item.url).startsWith("blob:"))
@@ -178,7 +188,7 @@ export function AppStore({ children }) {
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 2500); return () => clearTimeout(timer); }, [toast]);
 
   const value = useMemo(() => ({
-    prompts, works, library, draft, credits, settings, following, toast, setDraft, setCredits, setSettings, setFollowing, setToast, resetWorkspace,
+    prompts, works, library, draft, credits, settings, following, toast, setDraft, setCredits, setSettings, setFollowing, setToast, resetWorkspace, refreshBalance,
     togglePrompt: (id) => setPrompts((items) => items.map((item) => item.id === id ? { ...item, saved: !item.saved } : item)),
     toggleWork: (id, kind) => setWorks((items) => items.map((item) => item.id === id ? { ...item, [kind]: !item[kind], likes: kind === "liked" ? item.likes + (item.liked ? -1 : 1) : item.likes } : item)),
     addPrompt: (template) => setPrompts((items) => [{ ...template, id: crypto.randomUUID(), source: "我的", saved: true }, ...items]),
@@ -186,7 +196,7 @@ export function AppStore({ children }) {
     deletePrompt: (id) => setPrompts((items) => items.filter((item) => item.id !== id)),
     addComment: (id, comment) => setWorks((items) => items.map((item) => item.id === id ? { ...item, comments: [...item.comments, comment] } : item)),
     addLibraryWork: (work) => setLibrary((items) => [work, ...items])
-  }), [prompts, works, library, draft, credits, settings, following, toast, resetWorkspace]);
+  }), [prompts, works, library, draft, credits, settings, following, toast, resetWorkspace, refreshBalance]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
 
