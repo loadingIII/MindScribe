@@ -58,7 +58,7 @@ function normalizeTemplate(item) {
 
 /** 提示词库只使用服务端数据，避免页面加载时闪现本地示例。 */
 export default function PromptsFeature() {
-  const { setDraft, setToast } = useStore();
+  const { setToast } = useStore();
   const navigate = useNavigate();
   const [prompts, setPrompts] = useState([]);
   const [source, setSource] = useState("全部");
@@ -122,8 +122,8 @@ export default function PromptsFeature() {
   function openEditor(item = null) {
     setSelected(null);
     if (!item) {
-      setDraft({ prompt: "", tags: [], references: [], model: "gpt-image-2", size: "auto", quality: "auto", mode: "文本生图", title: "" });
-      navigate("/create/prompt-builder", { state: { blank: true } });
+      // 新建模板：直接进入构建器。构建器维护独立状态，不预写全局 draft，避免污染创作模块。
+      navigate("/create/prompt-builder");
       return;
     }
     setEditor({ ...item, coverPreview: item.cover || "" });
@@ -131,17 +131,6 @@ export default function PromptsFeature() {
 
   /** 携带模板内容跳转提示词构建器；构建器保存时回写同 id 的模板。 */
   function editPromptInBuilder(item) {
-    setDraft({
-      prompt: item.prompt,
-      tags: normalizeTags(item.tags).map((tag) => { const [key, ...rest] = tag.split(":"); return { key: key.trim(), value: rest.join(":").trim() }; }),
-      references: [],
-      model: item.modelDefaults?.model || "gpt-image-2",
-      size: "auto",
-      quality: "auto",
-      mode: item.modelDefaults?.mode || "文本生图",
-      templateId: item.id,
-      templateTitle: item.title
-    });
     closeOverlay();
     navigate("/create/prompt-builder", { state: { templateId: item.id } });
   }
@@ -330,18 +319,27 @@ export default function PromptsFeature() {
   }
 
   async function executeImageParse() {
+    console.log('========== 图像解析函数被调用 ==========');
+    console.log('parseImage:', parseImage);
+    console.log('parseIntent:', parseIntent);
+    
     if (!parseImage) {
+      console.log('[PromptsFeature] 错误：没有图片');
       setToast("请先上传图片");
       return;
     }
 
+    console.log('[PromptsFeature] 开始图像解析，图片:', parseImage.name, '意图:', parseIntent);
     setParsing(true);
     try {
       // 后端 /ai/prompts/parse-image 接收 multipart 表单（userPrompt + image 文件），
       // 图片由后端统一上传 OSS，前端无需单独上传。
       const form = new FormData();
-      form.append("userPrompt", parseIntent.trim() || "全面解析这张图片，提取可用于生成类似图片的提示词");
+      const userPrompt = parseIntent.trim() || "全面解析这张图片，提取可用于生成类似图片的提示词";
+      form.append("userPrompt", userPrompt);
       form.append("image", parseImage);
+      
+      console.log('[PromptsFeature] 发送请求到 /ai/prompts/parse-image，userPrompt:', userPrompt);
 
       const response = await fetch("/ai/prompts/parse-image", {
         method: "POST",
@@ -349,14 +347,24 @@ export default function PromptsFeature() {
         body: form
       });
 
-      const data = await response.json().catch(() => ({}));
+      console.log('[PromptsFeature] 响应状态:', response.status, response.statusText);
+
+      const data = await response.json().catch((err) => {
+        console.error('[PromptsFeature] JSON 解析失败:', err);
+        return {};
+      });
+      
+      console.log('[PromptsFeature] 响应数据:', data);
+      
       if (!response.ok) throw new Error(data.message || "图像解析失败");
 
       // 后端返回 { analysisSummary, tags: [{tagName, tagValue}], imageUrl }
       if (!data.tags?.length) throw new Error("未解析出有效的标签提示词");
       setParseResult(data);
       setToast("解析完成");
+      console.log('[PromptsFeature] 解析成功，结果:', data);
     } catch (error) {
+      console.error('[PromptsFeature] 图像解析失败:', error);
       setToast(error.message || "图像解析失败，请稍后重试");
     } finally {
       setParsing(false);
@@ -391,11 +399,14 @@ export default function PromptsFeature() {
       model: "gpt-image-2",
       size: "auto",
       quality: "auto",
-      mode: "文本生图"
+      mode: "文本生图",
+      type: "parse"  // 明确标记为图像解析类型草稿，与列表查询保持一致
     };
 
     // 保存到 localStorage 并获取草稿 ID
+    console.log('[PromptsFeature] 准备保存草稿，数据:', draftData);
     const draftId = saveDraft(draftData);
+    console.log('[PromptsFeature] 草稿已保存，ID:', draftId);
     
     if (draftId) {
       // 关闭解析对话框并跳转到提示词构建页，传递草稿 ID
@@ -589,16 +600,57 @@ export default function PromptsFeature() {
     </div>
   )}
   
-  {/* 解析按钮或查看按钮 */}
-  {parseImagePreview && (
+  {/* 解析按钮 */}
+  {parseImagePreview && !parseResult && (
     <button 
       type="button"
       className="analysis-execute-btn"
-      onClick={parseResult ? saveParseToDraftStorage : executeImageParse}
+      onClick={executeImageParse}
       disabled={parsing}
     >
-      {parsing ? "解析中..." : parseResult ? "解析成功，点击查看" : "开始解析"}
+      {parsing ? "解析中..." : "开始解析"}
     </button>
+  )}
+  
+  {/* 解析结果展示 */}
+  {parseResult && (
+    <div className="analysis-result">
+      <div className="analysis-result-header">
+        <strong>解析结果</strong>
+      </div>
+      
+      {/* 图像分析总结 */}
+      {parseResult.analysisSummary && (
+        <div className="analysis-section">
+          <span className="analysis-section-title">图像分析</span>
+          <p className="analysis-summary">{parseResult.analysisSummary}</p>
+        </div>
+      )}
+      
+      {/* 提取的标签 */}
+      {parseResult.tags && parseResult.tags.length > 0 && (
+        <div className="analysis-section">
+          <span className="analysis-section-title">提取的标签</span>
+          <div className="analysis-tags">
+            {parseResult.tags.map((tag, index) => (
+              <div key={index} className="analysis-tag-item">
+                <span className="analysis-tag-name">{tag.tagName}:</span>
+                <span className="analysis-tag-value">{tag.tagValue}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {/* 保存按钮 */}
+      <button 
+        type="button"
+        className="analysis-save-btn"
+        onClick={saveParseToDraftStorage}
+      >
+        保存草稿并打开构建器
+      </button>
+    </div>
   )}
 </div>}</aside></div>}
     {/* 草稿发布弹窗：复用创作页的"发布提示词"弹窗，发布成功后删除对应草稿。 */}

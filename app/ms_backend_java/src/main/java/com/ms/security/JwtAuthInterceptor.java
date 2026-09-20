@@ -9,7 +9,16 @@ public class JwtAuthInterceptor implements HandlerInterceptor {
     @Override public boolean preHandle(HttpServletRequest req, HttpServletResponse res, Object h) throws Exception {
         String token = null;
         if (req.getCookies() != null) for (Cookie c : req.getCookies()) if (jwt.cookieName().equals(c.getName())) token = c.getValue();
-        try { if (token != null) { req.setAttribute("userId", jwt.parse(token).getSubject()); return true; } } catch (Exception ignored) { }
-        res.setStatus(401); res.setContentType("application/json;charset=UTF-8"); res.getWriter().write("{\"code\":\"UNAUTHORIZED\",\"message\":\"请先登录\"}"); return false;
+        try {
+            if (token != null) {
+                req.setAttribute("userId", jwt.parse(token).getSubject());
+                return true;
+            }
+        } catch (Exception ignored) { }
+
+        res.setStatus(401);
+        res.setContentType("application/json;charset=UTF-8");
+        res.getWriter().write("{\"code\":\"UNAUTHORIZED\",\"message\":\"请先登录\"}");
+        return false;
     }
 }

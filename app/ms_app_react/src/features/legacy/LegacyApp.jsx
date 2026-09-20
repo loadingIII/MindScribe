@@ -391,10 +391,6 @@ export function CreatePage() {
   const [editingTaskName, setEditingTaskName] = useState(false);
   const [threadEdit, setThreadEdit] = useState(null);
   const [templatePublishOpen, setTemplatePublishOpen] = useState(false);
-  const [templateSaving, setTemplateSaving] = useState(false);
-  const [selectedCover, setSelectedCover] = useState("");
-  // AI 生成模板名称/简介的请求状态：请求中禁用按钮并显示加载文案。
-  const [metadataGenerating, setMetadataGenerating] = useState(false);
   // 提示词构建页带回的结构化标签，用于画布顶部的"标签栏"展示。
   const draftTags = Array.isArray(draft.tags) ? draft.tags : [];
   const tagChips = buildTagChips(draftTags);
@@ -403,86 +399,6 @@ export function CreatePage() {
   const canvasRef = useRef(null);
   // 任务失败时只提示一次，轮询不会重复弹出同一条错误。
   const failedAttemptRef = useRef("");
-
-  /** 调用大模型，根据提示词、标签和结果图生成模板名称与简介并回填表单。 */
-  async function generateTemplateMetadata(event) {
-    event.preventDefault();
-    if (metadataGenerating) return;
-    // 按钮在 Modal headerExtra 内，不在 form 内部，无法通过 closest("form") 查找，改为直接查询弹窗内的表单元素。
-    const titleInput = document.querySelector('.modal form [name="title"]');
-    const descriptionInput = document.querySelector('.modal form [name="description"]');
-    if (!titleInput || !descriptionInput) {
-      console.warn("找不到模板名称或简介输入框");
-      return;
-    }
-    if (!prompt.trim()) {
-      setToast("请先填写提示词内容");
-      return;
-    }
-    setMetadataGenerating(true);
-    try {
-      const response = await fetch("/ai/prompts/generate-metadata", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userPrompt: prompt.trim(),
-          // 标签只传有效项，帮助模型理解画面构成；空数组表示尚未生成标签。
-          tags: draftTags
-            .filter((tag) => String(tag?.key || "").trim() && String(tag?.value || "").trim())
-            .map((tag) => ({ key: String(tag.key).trim(), value: String(tag.value).trim() })),
-          // 附带当前选中的封面（优先）或第一张结果图，模型可基于真实效果图撰写简介。
-          resultImageUrl: selectedCover || results[0]?.image || ""
-        })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || "模板信息生成失败，请稍后重试");
-      if (!data.title || !data.description) throw new Error("未获得有效的模板名称与简介");
-      // 仅当用户未手动填写时才回填，避免覆盖已输入的内容。
-      if (!titleInput.value.trim()) titleInput.value = data.title;
-      if (!descriptionInput.value.trim()) descriptionInput.value = data.description;
-      setToast("模板名称与简介已生成，可继续编辑");
-    } catch (error) {
-      setToast(error.message || "模板信息生成失败，请稍后重试");
-    } finally {
-      setMetadataGenerating(false);
-    }
-  }
-
-  /** 发布当前创作模板，封面优先使用当前 Attempt 的第一张结果图。 */
-  async function publishCurrentTemplate(event) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const title = String(form.get("title") || "").trim();
-    if (!title || !prompt.trim()) {
-      setToast("请填写模板名称和提示词内容");
-      return;
-    }
-    setTemplateSaving(true);
-    const payload = {
-      title,
-      description: String(form.get("description") || "").trim(),
-      categoryCode: String(form.get("category") || "插画"),
-      visibility: String(form.get("visibility") || "private"),
-      userPromptTemplate: prompt.trim(),
-      builderSnapshot: null,
-      referenceSlots: files.map((item, index) => ({ slotKey: `reference_${index + 1}`, label: item.file?.name || `参考图${index + 1}`, required: false, maxCount: 1 })),
-      tags: draftTags,
-      modelDefaults: { model: draft.model || "gpt-image-2", mode: draft.mode || "文本生图" },
-      coverUrl: selectedCover || results[0]?.image || ""
-    };
-    try {
-      const response = await fetch("/prompt_templates", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (!response.ok) throw new Error("模板发布失败");
-      setTemplatePublishOpen(false);
-      setSelectedCover("");
-      setToast(payload.coverUrl ? "模板已发布，封面已设置" : "模板已发布，生成图片后可同步为封面");
-    } catch (error) {
-      setToast(error.message || "模板发布失败");
-    } finally {
-      setTemplateSaving(false);
-    }
-  }
 
   async function reloadTaskThreads() {
       try {
@@ -529,11 +445,16 @@ export function CreatePage() {
                   console.log("[恢复] 恢复 Attempt:", targetAttempt.id, "状态:", targetAttempt.rawStatus);
                   // 恢复 Attempt 的完整状态：提示词、标签、参数和结果图
                   setAttemptId(targetAttempt.id);
-                  setPrompt(targetAttempt.prompt || "");
+                  // 只有当前 draft.prompt 和 draft.tags 为空时才恢复服务器的数据，避免覆盖用户刚从提示词构建页编辑的内容。
+                  const shouldRestorePrompt = !draft.prompt || draft.prompt === targetAttempt.prompt;
+                  const shouldRestoreTags = !draft.tags || draft.tags.length === 0;
+                  if (shouldRestorePrompt) {
+                    setPrompt(targetAttempt.prompt || "");
+                  }
                   setDraft((current) => ({
                     ...current,
-                    prompt: targetAttempt.prompt || "",
-                    tags: targetAttempt.tags || [],
+                    prompt: shouldRestorePrompt ? (targetAttempt.prompt || "") : current.prompt,
+                    tags: shouldRestoreTags ? (targetAttempt.tags || []) : current.tags,
                     model: targetAttempt.modelName || current.model,
                     size: targetAttempt.size || current.size,
                     quality: targetAttempt.quality || current.quality,
@@ -629,6 +550,15 @@ export function CreatePage() {
     if (prompt !== draft.prompt) setDraft((current) => ({ ...current, prompt }));
   }, [prompt]);
   useEffect(() => {
+    // 提示词构建页保存后，全局草稿的 prompt 会更新，需反向同步到创作页的本地状态。
+    console.log("[CreatePage] useEffect[draft.prompt] - draft.prompt:", draft.prompt);
+    console.log("[CreatePage] useEffect[draft.prompt] - 当前 prompt:", prompt);
+    if (draft.prompt !== prompt) {
+      console.log("[CreatePage] useEffect[draft.prompt] - 触发同步，更新为:", draft.prompt);
+      setPrompt(draft.prompt);
+    }
+  }, [draft.prompt]);
+  useEffect(() => {
     // 参考图同步到全局草稿（仅内存共享），提示词构建页通过 draft.references 读取。
     setDraft((current) => ({ ...current, references: files }));
   }, [files]);
@@ -657,8 +587,21 @@ export function CreatePage() {
   useEffect(() => {
     // 仅轮询当前选中的 Attempt，避免新任务回显旧 Attempt 的结果。
     if (!threadId || !attemptId || status === "done" || status === "failed") return undefined;
+    // 记录轮询开始时间，超过 90 秒未完成则自动标记为超时失败。
+    const startTime = Date.now();
+    const TIMEOUT_MS = 90000;
     const poll = async () => {
       try {
+        // 检查是否超时：超过 90 秒且状态还在运行中，标记为超时失败并停止轮询。
+        const elapsed = Date.now() - startTime;
+        if (elapsed > TIMEOUT_MS && (status === "queued" || status === "working")) {
+          setStatus("failed");
+          if (failedAttemptRef.current !== attemptId) {
+            failedAttemptRef.current = attemptId;
+            setToast("生成超时：任务未在 90 秒内完成，请稍后重试");
+          }
+          return;
+        }
         const response = await fetch(`/gen_imgs/threads/${threadId}`);
         if (!response.ok) throw new Error("无法读取任务状态");
         const thread = await response.json();
@@ -841,7 +784,12 @@ export function CreatePage() {
     setCredits(credits - spend);
     try {
       const response = await fetch("/gen_imgs/threads", { method: "POST", body: form });
-      if (!response.ok) throw new Error("创建生成任务失败");
+      if (!response.ok) {
+        // 解析后端返回的错误响应体，优先展示具体错误信息而非通用消息。
+        const errorData = await response.json().catch(() => null);
+        const message = errorData?.message || "创建生成任务失败";
+        throw new Error(message);
+      }
       const thread = await response.json();
       const newThread = mapThread(thread, generatedTitle);
       const newAttempt = newThread.attempts.at(-1);
@@ -883,14 +831,22 @@ export function CreatePage() {
         method: "POST",
         body: form
       });
-      if (!response.ok) throw new Error("重试失败");
+      if (!response.ok) {
+        // 解析后端返回的错误响应体，优先展示具体错误信息而非通用消息。
+        const errorData = await response.json().catch(() => null);
+        const message = errorData?.message || "重试失败";
+        throw new Error(message);
+      }
       const thread = await response.json();
       const existingThread = taskThreads.find((item) => item.id === id);
       const refreshedThread = mapThread({ ...thread, referenceImages: existingThread?.references || [] }, existingThread?.title);
       const latestAttempt = refreshedThread.attempts.at(-1);
       setTaskThreads((items) => items.map((item) => item.id === id ? refreshedThread : item));
-      // 重试成功后立即切换到新 Attempt，避免继续展示旧 Attempt 的结果。
-      if (latestAttempt) selectAttempt(latestAttempt, refreshedThread);
+      // 重试成功后只更新 Attempt ID 和清空结果，不覆盖当前的 prompt（用户可能刚从提示词构建页编辑过）。
+      if (latestAttempt) {
+        setAttemptId(latestAttempt.id);
+        setResults([]);
+      }
     } catch (error) { setStatus("failed"); setToast(error.message); }
   }
 
@@ -1071,100 +1027,14 @@ export function CreatePage() {
     />}
     {threadEdit && <Modal title="修改任务名称" onClose={() => setThreadEdit(null)}><div className="template-form"><label>任务名称<input autoFocus maxLength="40" value={threadEdit.title} onChange={(event) => setThreadEdit({ ...threadEdit, title: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.closest("form")?.requestSubmit(); }} /></label><button type="button" className="primary-action" disabled={!threadEdit.title.trim()} onClick={async () => { try { const response = await fetch(`/gen_imgs/threads/${threadEdit.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: threadEdit.title.trim() }) }); if (!response.ok) throw new Error("任务名称修改失败"); setTaskThreads((items) => items.map((item) => item.id === threadEdit.id ? { ...item, title: threadEdit.title.trim() } : item)); if (workspaceThreadId === threadEdit.id) setTaskName(threadEdit.title.trim()); setThreadEdit(null); setToast("任务名称已更新"); } catch (error) { setToast(error.message); } }}>保存</button></div></Modal>}
     {templatePublishOpen && (
-      <Modal
-        title="发布提示词"
-        onClose={() => { setTemplatePublishOpen(false); setSelectedCover(""); }}
-        headerExtra={
-          <button className="template-ai-generate" type="button" onClick={generateTemplateMetadata} disabled={metadataGenerating}>
-            <Sparkles size={13} className={metadataGenerating ? "ai-spin" : ""} />
-            {metadataGenerating ? "灵感凝合中…" : "AI 补全"}
-          </button>
-        }
-      >
-        <form className="template-form" onSubmit={publishCurrentTemplate}>
-          <div className="template-form-section">
-            <label>
-              <span className="template-form-label-text">模板名称</span>
-              <input name="title" autoFocus required placeholder="例如：明信片风格" />
-            </label>
-          </div>
-          
-          <div className="template-form-section">
-            <label>
-              <span className="template-form-label-text">模板简介</span>
-              <textarea name="description" placeholder="说明模板适合的场景和用途" />
-            </label>
-          </div>
-          
-          <div className="template-form-section">
-            <label>
-              <span className="template-form-label-text">模板分类</span>
-              <select name="category" defaultValue="插画">
-                <option>插画</option>
-                <option>头像</option>
-                <option>海报</option>
-                <option>壁纸</option>
-                <option>明信片</option>
-                <option>小红书插图</option>
-              </select>
-            </label>
-          </div>
-          
-          <div className="template-form-section">
-            <label>
-              <span className="template-form-label-text">发布权限</span>
-              <select name="visibility" defaultValue="private">
-                <option value="public">社区（所有人可见）</option>
-                <option value="followers">关注我的人可见</option>
-                <option value="private">私有（仅自己可见）</option>
-              </select>
-            </label>
-          </div>
-          
-          <div className="template-form-section">
-            <span className="template-form-label-text">封面图片</span>
-            <div className="template-cover-picker">
-              <div className="cover-options">
-                {results.map((result, index) => (
-                  <div
-                    key={index}
-                    className={`cover-option ${selectedCover === result.image ? "selected" : ""}`}
-                    onClick={() => setSelectedCover(result.image)}
-                  >
-                    <img src={result.image} alt={`结果 ${index + 1}`} />
-                  </div>
-                ))}
-                <label className="cover-option upload">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onload = () => setSelectedCover(String(reader.result));
-                        reader.readAsDataURL(file);
-                      }
-                    }}
-                  />
-                  <UploadCloud size={22} />
-                  <span>自定义上传</span>
-                </label>
-              </div>
-              {!selectedCover && results.length === 0 && (
-                <small style={{ color: "#9EA08C", fontSize: "12px", fontStyle: "italic" }}>
-                  暂无生成图，请上传封面或稍后同步
-                </small>
-              )}
-            </div>
-          </div>
-          
-          <button className="primary-action" type="submit" disabled={templateSaving}>
-            <ArrowUpRight size={16} />
-            {templateSaving ? "发布中…" : "发布模板"}
-          </button>
-        </form>
-      </Modal>
+      <TemplatePublishModal
+        onClose={() => setTemplatePublishOpen(false)}
+        prompt={prompt}
+        tags={draftTags}
+        coverImages={results.map((result) => result.image)}
+        referenceSlots={files.map((item, index) => ({ slotKey: `reference_${index + 1}`, label: item.file?.name || `参考图${index + 1}`, required: false, maxCount: 1 }))}
+        modelDefaults={{ model: draft.model || "gpt-image-2", mode: draft.mode || "文本生图" }}
+      />
     )}
     {promptFullscreen && <PromptFullscreen value={prompt} files={files} onChange={setPrompt} onClose={() => setPromptFullscreen(false)} />}
     {advancedOpen && <AdvancedPromptModal value={additionalSystemPrompt} basePrompt={GEN_IMGS_SYSTEM_PROMPT} onChange={setAdditionalSystemPrompt} onClose={() => setAdvancedOpen(false)} onSave={() => { setDraft({ ...draft, additionalSystemPrompt }); setAdvancedOpen(false); setToast("系统提示词追加内容已保存"); }} />}
@@ -1399,6 +1269,209 @@ function PageHeading({ title, description, action }) {
 function Modal({ title, children, onClose, headerExtra }) {
   // 以通用遮罩承载详情、编辑和解析界面；headerExtra 渲染在标题右侧，用于放置轻量操作。
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal" onMouseDown={(event) => event.stopPropagation()}><header><div className="modal-title-group"><h2>{title}</h2>{headerExtra}</div><button onClick={onClose}><X size={19} /></button></header>{children}</section></div>;
+}
+
+/**
+ * 发布提示词模板弹窗：创作页与提示词库草稿共用的发布入口。
+ * 从 props 接收提示词、标签与候选封面，发布成功后回调 onPublished 供调用方做善后处理。
+ */
+export function TemplatePublishModal({ onClose, prompt, tags = [], coverImages = [], referenceSlots = [], modelDefaults = {}, onPublished }) {
+  const { setToast } = useStore();
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [selectedCover, setSelectedCover] = useState("");
+  // AI 生成模板名称/简介的请求状态：请求中禁用按钮并显示加载文案。
+  const [metadataGenerating, setMetadataGenerating] = useState(false);
+
+  // 弹窗关闭时重置内部状态，避免下次打开时残留上次的选中封面。
+  function handleClose() {
+    setSelectedCover("");
+    setMetadataGenerating(false);
+    setTemplateSaving(false);
+    onClose();
+  }
+
+  /** 调用大模型，根据提示词、标签和候选封面生成模板名称与简介并回填表单。 */
+  async function generateTemplateMetadata(event) {
+    event.preventDefault();
+    if (metadataGenerating) return;
+    // 按钮在 Modal headerExtra 内，不在 form 内部，无法通过 closest("form") 查找，改为直接查询弹窗内的表单元素。
+    const titleInput = document.querySelector('.modal form [name="title"]');
+    const descriptionInput = document.querySelector('.modal form [name="description"]');
+    if (!titleInput || !descriptionInput) {
+      console.warn("找不到模板名称或简介输入框");
+      return;
+    }
+    if (!prompt.trim()) {
+      setToast("请先填写提示词内容");
+      return;
+    }
+    setMetadataGenerating(true);
+    try {
+      // 筛选有效的候选封面：草稿的本地 blob URL 无法传给后端，需要过滤掉。
+      const validCoverUrl = (selectedCover || coverImages[0] || "").trim();
+      const canSendCover = validCoverUrl && !validCoverUrl.startsWith("blob:");
+      
+      const response = await fetch("/ai/prompts/generate-metadata", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userPrompt: prompt.trim(),
+          // 标签只传有效项，帮助模型理解画面构成；空数组表示尚未生成标签。
+          tags: (tags || [])
+            .filter((tag) => String(tag?.key || "").trim() && String(tag?.value || "").trim())
+            .map((tag) => ({ key: String(tag.key).trim(), value: String(tag.value).trim() })),
+          // 草稿的本地 blob URL 后端无法访问，只传有效的远程图片 URL；空字符串表示无封面可用。
+          resultImageUrl: canSendCover ? validCoverUrl : ""
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "模板信息生成失败，请稍后重试");
+      if (!data.title || !data.description) throw new Error("未获得有效的模板名称与简介");
+      // 仅当用户未手动填写时才回填，避免覆盖已输入的内容。
+      if (!titleInput.value.trim()) titleInput.value = data.title;
+      if (!descriptionInput.value.trim()) descriptionInput.value = data.description;
+      setToast("模板名称与简介已生成，可继续编辑");
+    } catch (error) {
+      setToast(error.message || "模板信息生成失败，请稍后重试");
+    } finally {
+      setMetadataGenerating(false);
+    }
+  }
+
+  /** 发布当前模板，封面优先使用手动选中的图片。 */
+  async function publishCurrentTemplate(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const title = String(form.get("title") || "").trim();
+    if (!title || !prompt.trim()) {
+      setToast("请填写模板名称和提示词内容");
+      return;
+    }
+    setTemplateSaving(true);
+    // 封面 URL 同样过滤掉本地 blob，避免草稿发布时把无效 URL 存入数据库。
+    const finalCoverUrl = (selectedCover || coverImages[0] || "").trim();
+    const payload = {
+      title,
+      description: String(form.get("description") || "").trim(),
+      categoryCode: String(form.get("category") || "插画"),
+      visibility: String(form.get("visibility") || "private"),
+      userPromptTemplate: prompt.trim(),
+      builderSnapshot: null,
+      referenceSlots,
+      tags,
+      modelDefaults,
+      coverUrl: finalCoverUrl.startsWith("blob:") ? "" : finalCoverUrl
+    };
+    try {
+      const response = await fetch("/prompt_templates", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!response.ok) throw new Error("模板发布失败");
+      handleClose();
+      onPublished?.(payload);
+      setToast(payload.coverUrl ? "模板已发布，封面已设置" : "模板已发布");
+    } catch (error) {
+      setToast(error.message || "模板发布失败");
+    } finally {
+      setTemplateSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="发布提示词"
+      onClose={handleClose}
+      headerExtra={
+        <button className="template-ai-generate" type="button" onClick={generateTemplateMetadata} disabled={metadataGenerating}>
+          <Sparkles size={13} className={metadataGenerating ? "ai-spin" : ""} />
+          {metadataGenerating ? "灵感凝合中…" : "AI 补全"}
+        </button>
+      }
+    >
+      <form className="template-form" onSubmit={publishCurrentTemplate}>
+        <div className="template-form-section">
+          <label>
+            <span className="template-form-label-text">模板名称</span>
+            <input name="title" autoFocus required placeholder="例如：明信片风格" />
+          </label>
+        </div>
+
+        <div className="template-form-section">
+          <label>
+            <span className="template-form-label-text">模板简介</span>
+            <textarea name="description" placeholder="说明模板适合的场景和用途" />
+          </label>
+        </div>
+
+        <div className="template-form-section">
+          <label>
+            <span className="template-form-label-text">模板分类</span>
+            <select name="category" defaultValue="插画">
+              <option>插画</option>
+              <option>头像</option>
+              <option>海报</option>
+              <option>壁纸</option>
+              <option>明信片</option>
+              <option>小红书插图</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="template-form-section">
+          <label>
+            <span className="template-form-label-text">发布权限</span>
+            <select name="visibility" defaultValue="private">
+              <option value="public">社区（所有人可见）</option>
+              <option value="followers">关注我的人可见</option>
+              <option value="private">私有（仅自己可见）</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="template-form-section">
+          <span className="template-form-label-text">封面图片</span>
+          <div className="template-cover-picker">
+            <div className="cover-options">
+              {coverImages.map((image, index) => (
+                <div
+                  key={index}
+                  className={`cover-option ${selectedCover === image ? "selected" : ""}`}
+                  onClick={() => setSelectedCover(image)}
+                >
+                  <img src={image} alt={`候选封面 ${index + 1}`} />
+                </div>
+              ))}
+              <label className="cover-option upload">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = () => setSelectedCover(String(reader.result));
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                />
+                <UploadCloud size={22} />
+                <span>自定义上传</span>
+              </label>
+            </div>
+            {!selectedCover && coverImages.length === 0 && (
+              <small style={{ color: "#9EA08C", fontSize: "12px", fontStyle: "italic" }}>
+                暂无生成图，请上传封面或稍后同步
+              </small>
+            )}
+          </div>
+        </div>
+
+        <button className="primary-action" type="submit" disabled={templateSaving}>
+          <ArrowUpRight size={16} />
+          {templateSaving ? "发布中…" : "发布模板"}
+        </button>
+      </form>
+    </Modal>
+  );
 }
 
 export default LegacyApp;

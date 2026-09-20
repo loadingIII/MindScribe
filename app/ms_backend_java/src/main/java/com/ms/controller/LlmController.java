@@ -487,7 +487,10 @@ public class LlmController {
             throw invalidImageParseResponse();
         }
 
-        return new ParseImageResponse(summary, tags);
+        ParseImageResponse result = new ParseImageResponse();
+        result.setAnalysisSummary(summary);
+        result.setTags(tags);
+        return result;
     }
 
     /**
