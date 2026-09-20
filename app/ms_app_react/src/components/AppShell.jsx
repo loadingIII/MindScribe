@@ -1,15 +1,14 @@
-import { ArrowLeft, Clock3, FolderOpen, LayoutGrid, Plus, Save, Sparkles, WandSparkles, Zap } from "lucide-react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { ArrowLeft, ArrowUpRight, Check, Clock3, PanelRight, Pencil, Plus, Sparkles, WandSparkles, Zap } from "lucide-react";
 import { image } from "../assets/mockData";
 import { ROUTES } from "../config/routes";
 import { ZH_CN } from "../locales/zh-CN";
 import { useStore } from "../store/AppStore";
+import { useEffect, useState } from "react";
 
 const navItems = [
   { to: ROUTES.create, label: "创作", icon: WandSparkles },
-  { to: ROUTES.prompts, label: "提示词", icon: Sparkles },
-  { to: ROUTES.library, label: "素材库", icon: FolderOpen },
-  { to: ROUTES.community, label: "灵感", icon: LayoutGrid }
+  { to: ROUTES.prompts, label: "提示词", icon: Sparkles }
 ];
 
 /** 提供应用侧边导航、顶部状态栏和全局通知。 */
@@ -19,7 +18,47 @@ export default function AppShell({ onLogout }) {
   const navigate = useNavigate();
   const isCreateHome = location.pathname === ROUTES.create;
   const isPromptBuilder = location.pathname === "/create/prompt-builder";
-  const activeLabel = navItems.find((item) => location.pathname.startsWith(item.to))?.label || "创作";
+  const isPrompts = location.pathname.startsWith(ROUTES.prompts);
+  const activeLabel = isPrompts ? "提示词库" : navItems.find((item) => location.pathname.startsWith(item.to))?.label || "创作";
+
+  // 创作页顶栏右侧控件状态：通过自定义事件与 LegacyApp 同步
+  const [taskName, setTaskName] = useState("");
+  const [editingTaskName, setEditingTaskName] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [canPublish, setCanPublish] = useState(false);
+
+  useEffect(() => {
+    const handleTaskNameUpdate = (event) => setTaskName(event.detail.taskName || "");
+    const handleWorkspaceToggle = (event) => setWorkspaceOpen(event.detail.open);
+    const handlePublishState = (event) => setCanPublish(event.detail.canPublish);
+    
+    window.addEventListener("topbar-task-name-update", handleTaskNameUpdate);
+    window.addEventListener("topbar-workspace-state", handleWorkspaceToggle);
+    window.addEventListener("topbar-publish-state", handlePublishState);
+    
+    return () => {
+      window.removeEventListener("topbar-task-name-update", handleTaskNameUpdate);
+      window.removeEventListener("topbar-workspace-state", handleWorkspaceToggle);
+      window.removeEventListener("topbar-publish-state", handlePublishState);
+    };
+  }, []);
+
+  function saveTaskName() {
+    if (taskName.trim()) {
+      window.dispatchEvent(new CustomEvent("topbar-save-task-name", { detail: { taskName: taskName.trim() } }));
+    }
+    setEditingTaskName(false);
+  }
+
+  function toggleWorkspace() {
+    const newState = !workspaceOpen;
+    setWorkspaceOpen(newState);
+    window.dispatchEvent(new CustomEvent("topbar-toggle-workspace", { detail: { open: newState } }));
+  }
+
+  function openPublishModal() {
+    window.dispatchEvent(new CustomEvent("topbar-open-publish-modal"));
+  }
 
   async function logout() {
     await fetch("/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
@@ -34,11 +73,88 @@ export default function AppShell({ onLogout }) {
       <nav>{navItems.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}><Icon size={18} /><span>{label}</span></NavLink>)}</nav>
       <div className="nav-bottom"><NavLink to={ROUTES.profile} className={({ isActive }) => `account-dock ${isActive ? "active" : ""}`}><img src={image("creator-avatar", 80, 80)} alt="我的头像" /><span><b>漫游的树</b><i><Zap size={12} /> {credits.toLocaleString()} {ZH_CN.creditsUnit}</i></span><span className="account-arrow">↗</span></NavLink><button className="logout-button" onClick={logout}>退出登录</button></div>
     </aside>
-    <main className="app-main">
-      <header className={`topbar ${isCreateHome ? "create-topbar" : ""}`}><strong>{isPromptBuilder ? "✦  构建提示词" : isCreateHome ? "开始创作" : activeLabel}</strong>
-      {/* 创作首页顶栏的"新建任务"按钮：点击后通过自定义事件通知创作页重置状态。 */}
-      {isCreateHome && <button className="new-creation-button" type="button" onClick={() => window.dispatchEvent(new CustomEvent("start-new-creation"))}><Plus size={15} />新建任务</button>}
-      {isPromptBuilder ? <div className="prompt-builder-top-actions"><Link to={ROUTES.create} className="prompt-builder-back"><ArrowLeft size={15} />返回创作</Link><button className="prompt-builder-save" type="button" onClick={() => window.dispatchEvent(new CustomEvent("imgs-prompt-save"))}><Save size={15} />保存</button></div> : <div className="top-actions"><button className="icon-button" title="通知"><Clock3 size={17} /></button><Link to={ROUTES.create} className="quick-create"><Plus size={16} />{ZH_CN.newCreation}</Link></div>}</header>
+    <main className={`app-main ${workspaceOpen ? "workspace-open" : ""}`}>
+      <header className={`topbar ${isCreateHome ? "create-topbar" : ""} ${isPrompts ? "prompt-topbar" : ""}`}>
+        {isCreateHome ? (
+          <>
+            {/* 创作页左侧：任务名称编辑区 */}
+            <div className="topbar-task-name">
+              {taskName ? (
+                <>
+                  <input 
+                    className="task-name-input" 
+                    value={taskName} 
+                    maxLength={40}
+                    readOnly={!editingTaskName}
+                    onChange={(e) => setTaskName(e.target.value)}
+                    onBlur={saveTaskName}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                        setEditingTaskName(false);
+                      }
+                    }}
+                    aria-label="任务名称"
+                  />
+                  <button 
+                    type="button" 
+                    className="task-name-edit-btn" 
+                    title={editingTaskName ? "保存" : "编辑"}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      if (editingTaskName) {
+                        saveTaskName();
+                      } else {
+                        setEditingTaskName(true);
+                      }
+                    }}
+                  >
+                    {editingTaskName ? <Check size={14} /> : <Pencil size={14} />}
+                  </button>
+                </>
+              ) : (
+                <span className="task-name-placeholder">未命名任务</span>
+              )}
+            </div>
+            {/* 创作页右侧：新建任务、发布到模板、工作区 */}
+            <div className="topbar-actions">
+              <button 
+                className="action-btn action-new" 
+                type="button" 
+                onClick={() => window.dispatchEvent(new CustomEvent("start-new-creation"))}
+              >
+                <Plus size={16} />
+                <span>新建任务</span>
+              </button>
+              <button 
+                className="action-btn action-publish" 
+                type="button" 
+                onClick={openPublishModal}
+                disabled={!canPublish}
+              >
+                <ArrowUpRight size={16} />
+                <span>发布到模板</span>
+              </button>
+              <button 
+                className={`action-btn action-workspace ${workspaceOpen ? "is-active" : ""}`}
+                type="button"
+                aria-expanded={workspaceOpen}
+                onClick={toggleWorkspace}
+              >
+                <PanelRight size={16} />
+                <span>工作区</span>
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="topbar-left">
+              <strong>{isPromptBuilder ? "✦  构建提示词" : activeLabel}</strong>
+            </div>
+          </>
+        )}
+        {isPromptBuilder ? <><Link to={ROUTES.create} className="prompt-builder-back"><ArrowLeft size={15} />返回创作</Link><div className="prompt-builder-top-actions"><button className="prompt-builder-save" type="button" onClick={() => window.dispatchEvent(new CustomEvent("imgs-prompt-save"))}><Check size={15} />保存</button></div></> : !isPrompts && !isCreateHome && <div className="top-actions"><button className="icon-button" title="通知"><Clock3 size={17} /></button><Link to={ROUTES.create} className="quick-create"><Plus size={16} />{ZH_CN.newCreation}</Link></div>}
+      </header>
       <Outlet />
     </main>
     {toast && <div className="toast">{toast}</div>}

@@ -1,8 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Save, Sparkles } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useCachedState, useStore } from "../../store/AppStore";
 import { ImagePreview } from "../../features/legacy/LegacyApp";
+import SelectField from "../SelectField";
+import { loadDraft, deleteDraft, saveDraft as saveDraftToStorage } from "../../utils/draftStorage";
 import "./ImgsPromptPage.css";
 import "./ImgsPromptPage.responsive.css";
 
@@ -280,19 +282,60 @@ function PromptChip({ chip, onInput, onKey, onBlur, onRemove, compactLabel = fal
 
 export default function ImgsPromptPage() {
   const navigate = useNavigate();
-  const { draft, setDraft, setToast } = useStore();
-  // 参考图与提示词统一从全局草稿读取，与创作页保持同一份数据，避免路由切换导致不一致。
-  const references = draft.references || [];
-  const initialPrompt = draft.prompt || "";
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { setToast } = useStore();
+  
+  // 构建器使用独立的本地状态，不再与创作模块共享全局 draft
+  const [localDraft, setLocalDraft] = useState({
+    prompt: "",
+    tags: [],
+    references: [],
+    model: "gpt-image-2",
+    mode: "文本生图"
+  });
+  const [currentDraftId, setCurrentDraftId] = useState(null);
+  
+  // 从 URL 参数读取草稿 ID，加载到本地状态
+  useEffect(() => {
+    const draftId = searchParams.get("draft");
+    console.log('[ImgsPromptPage] URL 参数 draftId:', draftId);
+    console.log('[ImgsPromptPage] currentDraftId:', currentDraftId);
+    if (draftId && draftId !== currentDraftId) {
+      const savedDraft = loadDraft(draftId);
+      console.log('[ImgsPromptPage] 加载的草稿数据:', savedDraft);
+      if (savedDraft) {
+        setLocalDraft({
+          prompt: savedDraft.prompt || "",
+          tags: savedDraft.tags || [],
+          references: savedDraft.references || [],
+          model: savedDraft.model || "gpt-image-2",
+          mode: savedDraft.mode || "文本生图"
+        });
+        console.log('[ImgsPromptPage] 设置 localDraft，references 长度:', savedDraft.references?.length);
+        setCurrentDraftId(draftId);
+        setToast(`已加载草稿：${savedDraft.source || "图像解析"}`);
+        
+        // 移除 URL 参数，避免刷新时重复加载
+        searchParams.delete("draft");
+        setSearchParams(searchParams, { replace: true });
+      } else {
+        setToast("草稿不存在或已过期");
+      }
+    }
+  }, [searchParams, setSearchParams, setToast, currentDraftId]);
+  
+  // 参考图与提示词使用本地状态，与创作模块完全独立
+  const references = localDraft.references || [];
+  const initialPrompt = localDraft.prompt || "";
   const [active, setActive] = useState("主体对象");
   const [sub, setSub] = useState("主体信息");
   const [chips, setChips] = useState(() => {
     const parsed = parseChips(initialPrompt);
     const textChips = parsed.filter((chip) => chip.type === "text");
     const parsedFields = parsed.filter((chip) => chip.type === "field");
-    // 字段芯片从 draft.tags 恢复（保存时与提示词文本分开传递），重进页面时还原完整编辑状态。
+    // 字段芯片从 localDraft.tags 恢复（保存时与提示词文本分开传递），重进页面时还原完整编辑状态。
     const existingKeys = new Set(parsedFields.map((chip) => chip.key));
-    const tagFields = (draft.tags || []).flatMap((tag, index) => {
+    const tagFields = (localDraft.tags || []).flatMap((tag, index) => {
       const key = String(tag?.key || "").trim();
       if (!key || existingKeys.has(key)) return [];
       existingKeys.add(key);
@@ -323,6 +366,9 @@ export default function ImgsPromptPage() {
   const [previewItem, setPreviewItem] = useState(null);
   // 请求进行中时禁用按钮，避免同一份创作内容被重复提交。
   const [optimizing, setOptimizing] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [templateCategory, setTemplateCategory] = useState("插画");
   const savedSnapshot = useRef(initialPrompt);
   // 分类文案更新后，旧的子分类状态可能仍在首帧渲染中；使用当前分类的首个子分类兜底，避免白屏。
   const activeGroup = GROUPS[active] || GROUPS["主体对象"];
@@ -342,10 +388,44 @@ export default function ImgsPromptPage() {
     if (sub !== currentSub) setSub(currentSub);
   }, [active, sub, currentSub, subs]);
 
+  // 当草稿加载后，重新解析 chips
   useEffect(() => {
-    const handler = () => saveDraft();
-    window.addEventListener("imgs-prompt-save", handler);
-    return () => window.removeEventListener("imgs-prompt-save", handler);
+    console.log('[ImgsPromptPage] chips useEffect 触发，currentDraftId:', currentDraftId);
+    console.log('[ImgsPromptPage] localDraft.prompt:', localDraft.prompt);
+    console.log('[ImgsPromptPage] localDraft.tags:', localDraft.tags);
+    if (currentDraftId) {
+      const parsed = parseChips(localDraft.prompt || "");
+      const textChips = parsed.filter((chip) => chip.type === "text");
+      const parsedFields = parsed.filter((chip) => chip.type === "field");
+      const existingKeys = new Set(parsedFields.map((chip) => chip.key));
+      const tagFields = (localDraft.tags || []).flatMap((tag, index) => {
+        const key = String(tag?.key || "").trim();
+        if (!key || existingKeys.has(key)) return [];
+        existingKeys.add(key);
+        return [{
+          id: `field-tag-${key}-${index}`,
+          type: "field",
+          key,
+          value: tag.value || ""
+        }];
+      });
+      const text = textChips.length ? textChips : [{ id: "text-composer", type: "text", value: "" }];
+      const newChips = [...text, ...parsedFields, ...tagFields];
+      console.log('[ImgsPromptPage] 设置新的 chips:', newChips);
+      setChips(newChips);
+      savedSnapshot.current = localDraft.prompt || "";
+    }
+  }, [currentDraftId, localDraft.prompt, localDraft.tags]);
+
+  useEffect(() => {
+    const saveHandler = () => saveCurrentDraft();
+    const publishHandler = () => openTemplateDialog();
+    window.addEventListener("imgs-prompt-save", saveHandler);
+    window.addEventListener("imgs-prompt-publish", publishHandler);
+    return () => {
+      window.removeEventListener("imgs-prompt-save", saveHandler);
+      window.removeEventListener("imgs-prompt-publish", publishHandler);
+    };
   });
   useEffect(() => {
     // 外部创作页带入的内容不会触发 onChange，渲染后统一计算芯片输入框高度。
@@ -403,21 +483,81 @@ export default function ImgsPromptPage() {
     });
   }
 
-  // 保存当前提示词构建状态到全局草稿：仅保存，不离开当前页面。
-  function saveDraft() {
-    // 仅将"用户输入"芯片的内容作为提示词带回创作页；标签通过 tags 单独传递，仅用于标签栏展示。
+  // 保存当前提示词构建状态到 localStorage 草稿：仅保存，不离开当前页面，不影响创作模块。
+  function saveCurrentDraft() {
     const composer = chips.find((chip) => chip.type === "text");
     const prompt = composer ? composer.value : "";
     const tags = chips.filter((chip) => chip.type === "field").map((chip) => ({ key: chip.key, value: chip.value }));
-    setDraft({ ...draft, prompt, tags });
-    // 快照存完整构建结果（含字段芯片），保证保存后返回创作页时不再误报"未保存"。
-    savedSnapshot.current = buildPrompt();
-    setToast("提示词已保存");
+
+    // 保存到 localStorage 草稿；已有草稿 ID 时更新原草稿，否则新建。
+    const draftData = {
+      prompt,
+      tags,
+      references,
+      model: localDraft.model || "gpt-image-2",
+      mode: localDraft.mode || "文本生图",
+      source: currentDraftId ? "提示词构建器" : "图像解析",
+      type: "parse" // 确保草稿类型正确，以便在草稿列表中显示
+    };
+
+    const savedId = saveDraftToStorage(draftData, currentDraftId);
+
+    if (savedId) {
+      setCurrentDraftId(savedId);
+      savedSnapshot.current = buildPrompt();
+      setToast("草稿已保存");
+    } else {
+      setToast("草稿保存失败");
+    }
   }
 
-  // 保存并返回创作页：用于退出确认弹窗中的"保存并返回"。
-  function saveAndReturn() {
-    saveDraft();
+  /** 打开模板元信息表单；普通保存按钮不会触发模板写入。 */
+  function openTemplateDialog() {
+    if (!buildPrompt().trim()) {
+      setToast("请先填写提示词内容");
+      return;
+    }
+    setTemplateDialogOpen(true);
+  }
+
+  /** 将当前构建器的完整结构保存到提示词库，参考图只保存为插槽元数据。 */
+  async function saveTemplateToLibrary(metadata = {}) {
+    const composer = chips.find((chip) => chip.type === "text");
+    const prompt = composer ? composer.value.trim() : "";
+    if (!prompt.trim()) {
+      setToast("请先填写提示词内容");
+      return;
+    }
+    if (savingTemplate) return;
+    setSavingTemplate(true);
+    const tags = chips.filter((chip) => chip.type === "field").map((chip) => ({ key: chip.key, value: chip.value || "" }));
+    const payload = {
+      title: metadata.title?.trim() || "我的提示词模板",
+      description: metadata.description?.trim() || "",
+      categoryCode: metadata.categoryCode || "插画",
+      visibility: metadata.visibility === "public" ? "public" : "private",
+      userPromptTemplate: prompt,
+      builderSnapshot: { chips },
+      referenceSlots: references.map((item, index) => ({ slotKey: `reference_${index + 1}`, label: item.file?.name || item.name || `参考图${index + 1}`, required: false, maxCount: 1 })),
+      tags,
+      modelDefaults: { model: localDraft.model || "gpt-image-2", mode: localDraft.mode || "文本生图" }
+    };
+    try {
+      const response = await fetch("/prompt_templates", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!response.ok) throw new Error("模板保存失败");
+      // 发布成功后，保存草稿
+      saveCurrentDraft();
+      setTemplateDialogOpen(false);
+      setToast("提示词模板已发布");
+    } catch (error) {
+      setToast(error.message || "模板保存失败");
+    } finally {
+      setSavingTemplate(false);
+    }
+  }
+
+  // 放弃修改并返回创作页
+  function discardAndReturn() {
     navigate("/create");
   }
 
@@ -507,8 +647,12 @@ export default function ImgsPromptPage() {
       const form = new FormData();
       form.append("userPrompt", userPrompt);
       references.forEach((item, index) => {
+        // 本地 File 直接上传；草稿里存的 OSS URL 传给后端复用，无需重新上传。
         if (item.file instanceof File) {
           form.append("referenceImages", item.file);
+          form.append("referenceIndexes", String(index + 1));
+        } else if (item.url && !String(item.url).startsWith("blob:")) {
+          form.append("referenceUrls", item.url);
           form.append("referenceIndexes", String(index + 1));
         }
       });
@@ -596,7 +740,7 @@ export default function ImgsPromptPage() {
         <div className="pane-divider horizontal" role="separator" aria-orientation="horizontal" onPointerDown={dragHorizontalDivider} />
         {/* 参考图模块：与创作页参考图同步，点击缩略图放大预览（与结果图预览一致）。 */}
         <section className="reference-workbench">
-          <div className="reference-workbench-head"><span>参考图</span><small>{references.length ? `${references.length} 张 · 与创作同步` : "与创作模块的参考图同步"}</small></div>
+          <div className="reference-workbench-head"><span>参考图</span><small>{references.length ? `${references.length} 张` : "添加参考图后，可在提示词中引用"}</small></div>
           <div className="reference-workbench-grid">
             {references.map((item) => (
               <button type="button" className="reference-thumb" key={item.id || item.name} onClick={() => setPreviewItem({ image: item.url, title: item.file?.name || item.name })}>
@@ -604,7 +748,7 @@ export default function ImgsPromptPage() {
                 <span>{item.file?.name || item.name}</span>
               </button>
             ))}
-            {!references.length && <p className="reference-empty">在创作页添加参考图后，这里会同步显示。</p>}
+            {!references.length && <p className="reference-empty">暂无参考图，可从草稿中加载或上传图片。</p>}
           </div>
         </section>
         </div>
@@ -665,10 +809,10 @@ export default function ImgsPromptPage() {
           <div className="custom-dialog exit-dialog" role="dialog" aria-modal="true" aria-labelledby="exit-dialog-title">
             <div className="custom-dialog-icon"><Save size={16} /></div>
             <h2 id="exit-dialog-title">返回创作</h2>
-            <p>当前有未保存的提示词修改，请选择如何处理。</p>
+            <p>当前有未保存的草稿修改，是否保存到草稿？</p>
             <div className="custom-dialog-actions">
-              <button type="button" onClick={() => { setExitDialogOpen(false); navigate("/create"); }}>不保存</button>
-              <button type="button" className="confirm" onClick={() => { setExitDialogOpen(false); saveAndReturn(); }}>保存并返回</button>
+              <button type="button" onClick={() => { setExitDialogOpen(false); discardAndReturn(); }}>不保存</button>
+              <button type="button" className="confirm" onClick={() => { setExitDialogOpen(false); saveCurrentDraft(); navigate("/create"); }}>保存草稿并返回</button>
             </div>
           </div>
         </div>
@@ -685,6 +829,20 @@ export default function ImgsPromptPage() {
               <button type="button" className="confirm" onClick={confirmCustomTag} disabled={!customTag.trim()}>创建标签</button>
             </div>
           </div>
+        </div>
+      )}
+      {templateDialogOpen && (
+        <div className="custom-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setTemplateDialogOpen(false); }}>
+          <form className="custom-dialog template-save-dialog" role="dialog" aria-modal="true" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); saveTemplateToLibrary({ title: form.get("title"), description: form.get("description"), categoryCode: templateCategory, visibility: form.get("visibility") === "public" ? "public" : "private" }); }}>
+            <div className="custom-dialog-icon"><Save size={16} /></div>
+            <h2>发布到提示词模板</h2>
+            <p>补充模板信息后，保存为可重复使用的提示词。</p>
+            <label><span>模板名称</span><input name="title" autoFocus placeholder="例如：人物动作保持" required maxLength={80} /></label>
+            <label><span>模板简介</span><textarea name="description" placeholder="说明模板适合的场景和用途" maxLength={240} /></label>
+            <SelectField className="template-category-field" label="模板分类" value={templateCategory} options={["插画", "头像", "海报", "壁纸", "明信片"]} onChange={setTemplateCategory} />
+            <label className="template-visibility"><input name="visibility" value="public" type="checkbox" />公开模板</label>
+            <div className="custom-dialog-actions"><button type="button" onClick={() => setTemplateDialogOpen(false)}>取消</button><button type="submit" className="confirm" disabled={savingTemplate}>{savingTemplate ? "发布中…" : "发布模板"}</button></div>
+          </form>
         </div>
       )}
     </section>

@@ -7,6 +7,14 @@ const REFERENCE_DB_NAME = "mindscribe-reference-images";
 const REFERENCE_STORE_NAME = "images";
 const CACHED_STATE_PREFIX = "mindscribe-create-state:";
 
+/** 清理指定的创作页缓存，避免新草稿恢复旧任务状态。 */
+export function clearCachedState(keys) {
+  keys.forEach((key) => {
+    delete stateCache[key];
+    try { localStorage.removeItem(`${CACHED_STATE_PREFIX}${key}`); } catch { /* 存储不可用时忽略清理失败。 */ }
+  });
+}
+
 function loadState() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
 }

@@ -3,7 +3,5 @@ export const ROUTES = {
   login: "/login",
   create: "/create",
   prompts: "/prompts",
-  library: "/library",
-  community: "/community",
   profile: "/profile"
 };

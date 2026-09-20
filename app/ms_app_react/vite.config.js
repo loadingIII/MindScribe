@@ -8,7 +8,8 @@ export default defineConfig({
     proxy: {
       "/gen_imgs": "http://127.0.0.1:8080",
       "/auth": "http://127.0.0.1:8080",
-      "/ai": "http://127.0.0.1:8080"
+      "/ai": "http://127.0.0.1:8080",
+      "/prompt_templates": "http://127.0.0.1:8080"
     }
   }
 });

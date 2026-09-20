@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ms.mapper.PromptTemplateMapper">
+
+    <!-- 通用列清单：JSON 字段转 CHAR 读取，反序列化由服务层完成。 -->
+    <sql id="columns">
+        id, owner_user_id AS ownerUserId, title, description, cover_url AS coverUrl,
+        source_type AS sourceType, category_code AS categoryCode, visibility, status,
+        user_prompt_template AS userPromptTemplate, system_prompt AS systemPrompt,
+        CAST(builder_snapshot AS CHAR) AS builderSnapshot,
+        CAST(reference_slots AS CHAR) AS referenceSlots,
+        CAST(model_defaults AS CHAR) AS modelDefaults, CAST(tags AS CHAR) AS tags,
+        usage_count AS usageCount, favorite_count AS favoriteCount,
+        created_at AS createdAt, updated_at AS updatedAt, published_at AS publishedAt, deleted_at AS deletedAt
+    </sql>
+
+    <select id="findById" resultType="com.ms.pojo.entity.PromptTemplateEntity">
+        SELECT
+        <include refid="columns"/>
+        FROM prompt_templates
+        WHERE id = #{id} AND deleted_at IS NULL
+    </select>
+
+    <!-- 可见性规则：公开、官方或本人创建；再按来源、分类与关键词筛选。 -->
+    <select id="findVisible" resultType="com.ms.pojo.entity.PromptTemplateEntity">
+        SELECT
+        <include refid="columns"/>
+        FROM prompt_templates
+        WHERE deleted_at IS NULL
+          AND status = 'published'
+          AND (visibility = 'public' OR source_type = 'official' OR owner_user_id = #{userId})
+          AND (#{source} = 'all'
+               OR (#{source} = 'mine' AND owner_user_id = #{userId})
+               OR (#{source} = 'official' AND source_type = 'official')
+               OR (#{source} = 'community' AND (source_type = 'community' OR (source_type = 'personal' AND visibility = 'public'))))
+          AND (#{category} = '' OR category_code = #{category})
+          AND (#{keyword} = '' OR title LIKE CONCAT('%', #{keyword}, '%')
+               OR description LIKE CONCAT('%', #{keyword}, '%')
+               OR user_prompt_template LIKE CONCAT('%', #{keyword}, '%'))
+        ORDER BY updated_at DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findOwned" resultType="com.ms.pojo.entity.PromptTemplateEntity">
+        SELECT
+        <include refid="columns"/>
+        FROM prompt_templates
+        WHERE owner_user_id = #{userId} AND id = #{id} AND deleted_at IS NULL
+    </select>
+
+    <insert id="insert" parameterType="com.ms.pojo.entity.PromptTemplateEntity">
+        INSERT INTO prompt_templates
+            (id, owner_user_id, title, description, cover_url, source_type, category_code,
+             visibility, status, user_prompt_template, system_prompt, builder_snapshot,
+             reference_slots, model_defaults, tags, published_at)
+        VALUES
+            (#{id}, #{ownerUserId}, #{title}, #{description}, #{coverUrl}, #{sourceType}, #{categoryCode},
+             #{visibility}, 'published', #{userPromptTemplate}, #{systemPrompt}, #{builderSnapshot},
+             #{referenceSlots}, #{modelDefaults}, #{tags}, CURRENT_TIMESTAMP(3))
+    </insert>
+
+    <!-- 部分更新：只更新传入（非 null）的字段，其余保持数据库原值。 -->
+    <update id="update" parameterType="com.ms.pojo.entity.PromptTemplateEntity">
+        UPDATE prompt_templates
+        <set>
+            updated_at = CURRENT_TIMESTAMP(3),
+            <if test="title != null">title = #{title},</if>
+            <if test="description != null">description = #{description},</if>
+            <if test="coverUrl != null">cover_url = #{coverUrl},</if>
+            <if test="categoryCode != null">category_code = #{categoryCode},</if>
+            <if test="visibility != null">visibility = #{visibility},</if>
+            <if test="userPromptTemplate != null">user_prompt_template = #{userPromptTemplate},</if>
+            <if test="systemPrompt != null">system_prompt = #{systemPrompt},</if>
+            <if test="builderSnapshot != null">builder_snapshot = #{builderSnapshot},</if>
+            <if test="referenceSlots != null">reference_slots = #{referenceSlots},</if>
+            <if test="modelDefaults != null">model_defaults = #{modelDefaults},</if>
+            <if test="tags != null">tags = #{tags},</if>
+        </set>
+        WHERE id = #{id} AND owner_user_id = #{ownerUserId} AND deleted_at IS NULL
+    </update>
+
+    <!-- 封面上传后的定点更新：只覆盖 cover_url，不触碰其他字段。 -->
+    <update id="updateCover">
+        UPDATE prompt_templates
+        SET cover_url = #{coverUrl}, updated_at = CURRENT_TIMESTAMP(3)
+        WHERE id = #{id} AND owner_user_id = #{userId} AND deleted_at IS NULL
+    </update>
+
+    <!-- 软删除：保留数据但归档，列表查询自动过滤。 -->
+    <update id="softDelete">
+        UPDATE prompt_templates
+        SET deleted_at = CURRENT_TIMESTAMP(3), status = 'archived', updated_at = CURRENT_TIMESTAMP(3)
+        WHERE id = #{id} AND owner_user_id = #{userId} AND deleted_at IS NULL
+    </update>
+
+    <select id="isFavorite" resultType="boolean">
+        SELECT EXISTS(SELECT 1 FROM prompt_template_favorites WHERE user_id = #{userId} AND template_id = #{templateId})
+    </select>
+
+    <!-- 重复收藏直接忽略，由受影响行数决定是否累加计数。 -->
+    <insert id="addFavorite">
+        INSERT IGNORE INTO prompt_template_favorites (user_id, template_id)
+        VALUES (#{userId}, #{templateId})
+    </insert>
+
+    <delete id="removeFavorite">
+        DELETE FROM prompt_template_favorites
+        WHERE user_id = #{userId} AND template_id = #{templateId}
+    </delete>
+
+    <update id="changeFavoriteCount">
+        UPDATE prompt_templates
+        SET favorite_count = GREATEST(0, favorite_count + #{delta})
+        WHERE id = #{templateId}
+    </update>
+
+    <update id="increaseUsage">
+        UPDATE prompt_templates
+        SET usage_count = usage_count + 1
+        WHERE id = #{templateId} AND deleted_at IS NULL
+    </update>
+
+    <insert id="insertUsage">
+        INSERT INTO prompt_template_usages (id, user_id, template_id, rendered_prompt)
+        VALUES (#{id}, #{userId}, #{templateId}, #{renderedPrompt})
+    </insert>
+</mapper>

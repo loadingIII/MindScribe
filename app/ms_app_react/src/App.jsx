@@ -3,9 +3,7 @@ import { useEffect, useState } from "react";
 import { AlertCircle, X } from "lucide-react";
 import AppShell from "./components/AppShell";
 import { ROUTES } from "./config/routes";
-import CommunityPage from "./pages/CommunityPage";
 import CreatePage from "./pages/CreatePage";
-import LibraryPage from "./pages/LibraryPage";
 import ProfilePage from "./pages/ProfilePage";
 import PromptsPage from "./pages/PromptsPage";
 import LoginPage from "./pages/LoginPage";
@@ -56,8 +54,8 @@ export default function App() {
       <Route path={ROUTES.create} element={<CreatePage />} />
       <Route path="/create/prompt-builder" element={<ImgsPromptPage />} />
       <Route path={ROUTES.prompts} element={<PromptsPage />} />
-      <Route path={ROUTES.library} element={<LibraryPage />} />
-      <Route path={ROUTES.community} element={<CommunityPage />} />
+      <Route path="/library" element={<Navigate to={ROUTES.create} replace />} />
+      <Route path="/community" element={<Navigate to={ROUTES.create} replace />} />
       <Route path={ROUTES.profile} element={<ProfilePage />} />
       <Route path="/" element={<Navigate to={ROUTES.create} replace />} />
     </Route></Routes>{notice && <aside className="global-notice" role="alert" aria-live="assertive"><span className="global-notice-icon"><AlertCircle size={18} /></span><div><b>需要处理一下</b><p>{notice}</p></div><button type="button" className="global-notice-close" onClick={() => setNotice("")} aria-label="关闭提示"><X size={16} /></button></aside>}</>;

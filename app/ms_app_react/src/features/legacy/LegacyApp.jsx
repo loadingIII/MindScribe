@@ -4,7 +4,7 @@ import { useGSAP } from "@gsap/react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import {
-  ArrowDownToLine, ArrowRight, Bookmark, Check, ChevronDown, Clock3, Copy, Download, Pencil,
+  ArrowDownToLine, ArrowRight, ArrowUpRight, Bookmark, Check, ChevronDown, Clock3, Copy, Download, Pencil,
   FileImage, FolderOpen, Heart, ImagePlus, Layers3, LayoutGrid, Maximize2, MessageCircle, MoreHorizontal,
   Palette, Plus, Search, Send, Settings2, Sparkles, Star, Trash2, UploadCloud, UserRound,
   WandSparkles, X, Zap, PanelRight, RotateCw
@@ -49,7 +49,7 @@ function sameTags(left, right) {
   return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right));
 }
 
-// 格式化 Attempt 创建时间；缺失或无效值统一显示“暂无”。
+// 格式化 Attempt 创建时间；缺失或无效值统一显示"暂无"。
 function formatAttemptCreatedAt(value) {
   if (value === null || value === undefined || value === "") return "暂无";
   const date = new Date(value);
@@ -390,6 +390,7 @@ export function CreatePage() {
   const [taskName, setTaskName] = useCachedState("create:taskName", () => defaultThreadTitle());
   const [editingTaskName, setEditingTaskName] = useState(false);
   const [threadEdit, setThreadEdit] = useState(null);
+  const [templatePublishOpen, setTemplatePublishOpen] = useState(false);
   // 提示词构建页带回的结构化标签，用于画布顶部的"标签栏"展示。
   const draftTags = Array.isArray(draft.tags) ? draft.tags : [];
   const tagChips = buildTagChips(draftTags);
@@ -415,37 +416,76 @@ export function CreatePage() {
         setTaskThreads(hydrated);
         setThreadPage(0);
         setThreadHasMore(threads.length === 10);
-        // 刷新后恢复当前线程及所选 Attempt，避免回到“新任务”初始状态。
-        const currentThread = hydrated.find((item) => item.id === threadId);
-        const currentAttempt = (currentThread?.attempts || []).find((item) => item.id === attemptId)
-          || (currentThread?.attempts || []).at(-1);
-        if (currentThread && currentAttempt) {
-          const snapshotMatchesDraft = !attemptId
-            || (draft.prompt === (currentAttempt.prompt || "")
-              && sameTags(draft.tags, currentAttempt.tags));
-          if (snapshotMatchesDraft) {
-            setAttemptId(currentAttempt.id);
-            setPrompt(currentAttempt.prompt || "");
-            setDraft((current) => ({
-              ...current,
-              prompt: currentAttempt.prompt || "",
-              tags: currentAttempt.tags || [],
-              model: currentAttempt.modelName || current.model,
-              size: currentAttempt.size || current.size,
-              quality: currentAttempt.quality || current.quality,
-              references: currentThread.references || []
-            }));
+        
+        // 刷新后从缓存状态恢复当前线程及所选 Attempt，避免丢失工作进度。
+        if (threadId) {
+          console.log("[恢复] threadId:", threadId, "当前 taskName:", taskName);
+          console.log("[恢复] 线程列表:", hydrated.map(t => ({ id: t.id, title: t.title })));
+          const currentThread = hydrated.find((item) => item.id === threadId);
+          if (currentThread) {
+            console.log("[恢复] 找到线程:", currentThread.title);
+            // 恢复任务名称
+            setTaskName(currentThread.title);
+            
+            // 加载该线程的完整 Attempt 列表
+            try {
+              const attemptsResponse = await fetch(`/gen_imgs/threads/${threadId}/attempts?page=0&size=10`);
+              if (attemptsResponse.ok) {
+                const attempts = await attemptsResponse.json();
+                const mappedThread = mapThread({ ...currentThread, attempts });
+                const updatedThreads = hydrated.map((t) => t.id === threadId ? mappedThread : t);
+                setTaskThreads(updatedThreads);
+                
+                // 优先恢复缓存的 attemptId，否则使用最新的 Attempt
+                const targetAttempt = attemptId
+                  ? mappedThread.attempts.find((item) => item.id === attemptId)
+                  : mappedThread.attempts.at(-1);
+                
+                if (targetAttempt) {
+                  console.log("[恢复] 恢复 Attempt:", targetAttempt.id, "状态:", targetAttempt.rawStatus);
+                  // 恢复 Attempt 的完整状态：提示词、标签、参数和结果图
+                  setAttemptId(targetAttempt.id);
+                  // 只有当前 draft.prompt 和 draft.tags 为空时才恢复服务器的数据，避免覆盖用户刚从提示词构建页编辑的内容。
+                  const shouldRestorePrompt = !draft.prompt || draft.prompt === targetAttempt.prompt;
+                  const shouldRestoreTags = !draft.tags || draft.tags.length === 0;
+                  if (shouldRestorePrompt) {
+                    setPrompt(targetAttempt.prompt || "");
+                  }
+                  setDraft((current) => ({
+                    ...current,
+                    prompt: shouldRestorePrompt ? (targetAttempt.prompt || "") : current.prompt,
+                    tags: shouldRestoreTags ? (targetAttempt.tags || []) : current.tags,
+                    model: targetAttempt.modelName || current.model,
+                    size: targetAttempt.size || current.size,
+                    quality: targetAttempt.quality || current.quality,
+                    references: mappedThread.references || []
+                  }));
+                  
+                  const restoredStatus = targetAttempt.rawStatus === "succeeded" || targetAttempt.imageUrls.length
+                    ? "done"
+                    : targetAttempt.rawStatus === "failed" ? "failed" 
+                    : targetAttempt.rawStatus === "running" ? "working" : "queued";
+                  console.log("[恢复] 设置状态:", restoredStatus, "图片数量:", targetAttempt.imageUrls.length);
+                  setStatus(restoredStatus);
+                  
+                  setResults(targetAttempt.imageUrls.map((url, index) => ({
+                    id: `${targetAttempt.id}-${index}`,
+                    image: url,
+                    title: `${mode} · ${index + 1}`,
+                    version: "初稿",
+                    attemptNumber: targetAttempt.attemptNo
+                  })));
+                }
+              }
+            } catch (error) {
+              console.error("恢复 Attempt 状态失败:", error);
+            }
+          } else {
+            // 找不到对应的线程，说明可能已被删除，清除缓存状态
+            console.warn("[恢复] 未找到 threadId 对应的线程，清除缓存状态");
+            setThreadId("");
+            setAttemptId("");
           }
-          setStatus(currentAttempt.rawStatus === "succeeded" || currentAttempt.imageUrls.length
-            ? "done"
-            : currentAttempt.rawStatus === "failed" ? "failed" : "working");
-          setResults(currentAttempt.imageUrls.map((url, index) => ({
-            id: `${currentAttempt.id}-${index}`,
-            image: url,
-            title: `${mode} · ${index + 1}`,
-            version: "初稿",
-            attemptNumber: currentAttempt.attemptNo
-          })));
         }
       } catch (error) { setToast(error.message); }
     }
@@ -456,10 +496,68 @@ export function CreatePage() {
     return () => { cancelled = true; };
   }, []);
 
+  // 与 AppShell 顶栏通信：同步任务名称、工作区状态和发布按钮状态
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("topbar-task-name-update", { 
+      detail: { taskName } 
+    }));
+  }, [taskName]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("topbar-workspace-state", { 
+      detail: { open: workspaceOpen } 
+    }));
+  }, [workspaceOpen]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("topbar-publish-state", { 
+      detail: { canPublish: prompt.trim().length > 0 } 
+    }));
+  }, [prompt]);
+
+  useEffect(() => {
+    const handleSaveTaskName = (event) => {
+      const newName = event.detail.taskName;
+      if (newName && newName !== taskName) {
+        setTaskName(newName);
+        if (workspaceThreadId) {
+          saveThreadTitle();
+        }
+      }
+    };
+
+    const handleToggleWorkspace = (event) => {
+      setWorkspaceOpen(event.detail.open);
+    };
+
+    const handleOpenPublishModal = () => {
+      setTemplatePublishOpen(true);
+    };
+
+    window.addEventListener("topbar-save-task-name", handleSaveTaskName);
+    window.addEventListener("topbar-toggle-workspace", handleToggleWorkspace);
+    window.addEventListener("topbar-open-publish-modal", handleOpenPublishModal);
+
+    return () => {
+      window.removeEventListener("topbar-save-task-name", handleSaveTaskName);
+      window.removeEventListener("topbar-toggle-workspace", handleToggleWorkspace);
+      window.removeEventListener("topbar-open-publish-modal", handleOpenPublishModal);
+    };
+  }, [taskName, workspaceThreadId, prompt]);
+
   useEffect(() => {
     // 创作页的提示词实时同步到全局草稿，供提示词构建页读取同一份内容。
     if (prompt !== draft.prompt) setDraft((current) => ({ ...current, prompt }));
   }, [prompt]);
+  useEffect(() => {
+    // 提示词构建页保存后，全局草稿的 prompt 会更新，需反向同步到创作页的本地状态。
+    console.log("[CreatePage] useEffect[draft.prompt] - draft.prompt:", draft.prompt);
+    console.log("[CreatePage] useEffect[draft.prompt] - 当前 prompt:", prompt);
+    if (draft.prompt !== prompt) {
+      console.log("[CreatePage] useEffect[draft.prompt] - 触发同步，更新为:", draft.prompt);
+      setPrompt(draft.prompt);
+    }
+  }, [draft.prompt]);
   useEffect(() => {
     // 参考图同步到全局草稿（仅内存共享），提示词构建页通过 draft.references 读取。
     setDraft((current) => ({ ...current, references: files }));
@@ -489,8 +587,21 @@ export function CreatePage() {
   useEffect(() => {
     // 仅轮询当前选中的 Attempt，避免新任务回显旧 Attempt 的结果。
     if (!threadId || !attemptId || status === "done" || status === "failed") return undefined;
+    // 记录轮询开始时间，超过 90 秒未完成则自动标记为超时失败。
+    const startTime = Date.now();
+    const TIMEOUT_MS = 90000;
     const poll = async () => {
       try {
+        // 检查是否超时：超过 90 秒且状态还在运行中，标记为超时失败并停止轮询。
+        const elapsed = Date.now() - startTime;
+        if (elapsed > TIMEOUT_MS && (status === "queued" || status === "working")) {
+          setStatus("failed");
+          if (failedAttemptRef.current !== attemptId) {
+            failedAttemptRef.current = attemptId;
+            setToast("生成超时：任务未在 90 秒内完成，请稍后重试");
+          }
+          return;
+        }
         const response = await fetch(`/gen_imgs/threads/${threadId}`);
         if (!response.ok) throw new Error("无法读取任务状态");
         const thread = await response.json();
@@ -656,7 +767,7 @@ export function CreatePage() {
     form.append("n", String(count));
     form.append("title", generatedTitle);
     form.append("model", draft.model || "gpt-image-2"); form.append("size", normalizeSize(draft.size));
-    // 生图服务只接受 auto、low、medium、high；界面“标准”对应 medium。
+    // 生图服务只接受 auto、low、medium、high；界面"标准"对应 medium。
     form.append("quality", normalizeQuality(draft.quality)); form.append("outputFormat", "png");
     // multipart 表单字段使用 Java DTO 的属性名，避免 @ModelAttribute 无法绑定下划线字段。
     files.forEach(({ file, url }) => { if (file instanceof File) form.append("referenceImages", file); else if (url) form.append("referenceImageUrls", url); });
@@ -673,7 +784,12 @@ export function CreatePage() {
     setCredits(credits - spend);
     try {
       const response = await fetch("/gen_imgs/threads", { method: "POST", body: form });
-      if (!response.ok) throw new Error("创建生成任务失败");
+      if (!response.ok) {
+        // 解析后端返回的错误响应体，优先展示具体错误信息而非通用消息。
+        const errorData = await response.json().catch(() => null);
+        const message = errorData?.message || "创建生成任务失败";
+        throw new Error(message);
+      }
       const thread = await response.json();
       const newThread = mapThread(thread, generatedTitle);
       const newAttempt = newThread.attempts.at(-1);
@@ -715,14 +831,22 @@ export function CreatePage() {
         method: "POST",
         body: form
       });
-      if (!response.ok) throw new Error("重试失败");
+      if (!response.ok) {
+        // 解析后端返回的错误响应体，优先展示具体错误信息而非通用消息。
+        const errorData = await response.json().catch(() => null);
+        const message = errorData?.message || "重试失败";
+        throw new Error(message);
+      }
       const thread = await response.json();
       const existingThread = taskThreads.find((item) => item.id === id);
       const refreshedThread = mapThread({ ...thread, referenceImages: existingThread?.references || [] }, existingThread?.title);
       const latestAttempt = refreshedThread.attempts.at(-1);
       setTaskThreads((items) => items.map((item) => item.id === id ? refreshedThread : item));
-      // 重试成功后立即切换到新 Attempt，避免继续展示旧 Attempt 的结果。
-      if (latestAttempt) selectAttempt(latestAttempt, refreshedThread);
+      // 重试成功后只更新 Attempt ID 和清空结果，不覆盖当前的 prompt（用户可能刚从提示词构建页编辑过）。
+      if (latestAttempt) {
+        setAttemptId(latestAttempt.id);
+        setResults([]);
+      }
     } catch (error) { setStatus("failed"); setToast(error.message); }
   }
 
@@ -731,8 +855,9 @@ export function CreatePage() {
     saveCachedReferences([]).catch(() => setToast("参考图清理失败，请稍后重试"));
     setFiles([]); setReferencesLocked(false); setResults([]); setStatus("idle");
     setTaskName(defaultThreadTitle(taskThreads)); setEditingTaskName(false);
+    setAttemptId(""); // 清空 Attempt ID，避免保留旧任务的执行记录引用
     // 新建任务同时清空上一次从提示词构建页带回的标签栏内容。
-    setDraft({ ...draft, prompt: "", tags: [] });
+    setDraft({ ...draft, prompt: "", tags: [], references: [] });
     setToast("已准备新的创作");
   }
 
@@ -843,7 +968,6 @@ export function CreatePage() {
   }
 
   return <section className={`create-page ${workspaceOpen ? "has-workspace-rail" : ""} ${(threadId || workspaceThreadId) ? "has-thread" : ""}`} style={{ "--workspace-width": `${workspaceWidth}px` }} ref={canvasRef} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); }}>
-    <div className="create-intro workspace-rail-controls"><button className={`workspace-dock-button ${workspaceOpen ? "is-open" : ""}`} type="button" aria-expanded={workspaceOpen} onClick={() => setWorkspaceOpen((open) => !open)}><span className="dock-glyph"><PanelRight size={15} /></span><span>工作区</span></button><div className="task-name-editor"><input className="task-name-inline" value={taskName} maxLength="40" readOnly={!editingTaskName} onChange={(event) => setTaskName(event.target.value)} onBlur={() => { if (editingTaskName) saveThreadTitle(); }} onKeyDown={(event) => { if (event.key === "Enter") { event.currentTarget.blur(); setEditingTaskName(false); } }} aria-label="任务名称" /><button type="button" className="task-name-edit" title={editingTaskName ? "保存任务名称" : "修改任务名称"} onMouseDown={(event) => event.preventDefault()} onClick={() => { if (editingTaskName) { saveThreadTitle(); setEditingTaskName(false); } else setEditingTaskName(true); }}>{editingTaskName ? <Check size={14} /> : <Pencil size={14} />}</button></div></div>
     <div className="studio-grid">
       <section className="creation-controls">
         {/* 参考图、提示词与参数区放入可滚动容器：内容超高时在模块内滚动，避免溢出被页面裁切。 */}
@@ -902,6 +1026,16 @@ export function CreatePage() {
       onSelectAttempt={selectAttempt}
     />}
     {threadEdit && <Modal title="修改任务名称" onClose={() => setThreadEdit(null)}><div className="template-form"><label>任务名称<input autoFocus maxLength="40" value={threadEdit.title} onChange={(event) => setThreadEdit({ ...threadEdit, title: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.closest("form")?.requestSubmit(); }} /></label><button type="button" className="primary-action" disabled={!threadEdit.title.trim()} onClick={async () => { try { const response = await fetch(`/gen_imgs/threads/${threadEdit.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: threadEdit.title.trim() }) }); if (!response.ok) throw new Error("任务名称修改失败"); setTaskThreads((items) => items.map((item) => item.id === threadEdit.id ? { ...item, title: threadEdit.title.trim() } : item)); if (workspaceThreadId === threadEdit.id) setTaskName(threadEdit.title.trim()); setThreadEdit(null); setToast("任务名称已更新"); } catch (error) { setToast(error.message); } }}>保存</button></div></Modal>}
+    {templatePublishOpen && (
+      <TemplatePublishModal
+        onClose={() => setTemplatePublishOpen(false)}
+        prompt={prompt}
+        tags={draftTags}
+        coverImages={results.map((result) => result.image)}
+        referenceSlots={files.map((item, index) => ({ slotKey: `reference_${index + 1}`, label: item.file?.name || `参考图${index + 1}`, required: false, maxCount: 1 }))}
+        modelDefaults={{ model: draft.model || "gpt-image-2", mode: draft.mode || "文本生图" }}
+      />
+    )}
     {promptFullscreen && <PromptFullscreen value={prompt} files={files} onChange={setPrompt} onClose={() => setPromptFullscreen(false)} />}
     {advancedOpen && <AdvancedPromptModal value={additionalSystemPrompt} basePrompt={GEN_IMGS_SYSTEM_PROMPT} onChange={setAdditionalSystemPrompt} onClose={() => setAdvancedOpen(false)} onSave={() => { setDraft({ ...draft, additionalSystemPrompt }); setAdvancedOpen(false); setToast("系统提示词追加内容已保存"); }} />}
     {previewResult && <ImagePreview result={previewResult} filename={`${safeDownloadName(taskName)}-${previewResult.attemptNumber || 1}.png`} onClose={() => setPreviewResult(null)} onDownload={() => downloadResultImage(previewResult.image, `${safeDownloadName(taskName)}-${previewResult.attemptNumber || 1}.png`)} />}
@@ -1101,7 +1235,7 @@ export function CommunityPage() {
   useGSAP(() => { const cards = gsap.utils.toArray(".feed-card"); gsap.fromTo(cards, { opacity: 0.25, scale: 0.9 }, { opacity: 1, scale: 1, stagger: 0.08, scrollTrigger: { trigger: ".community-feed", start: "top 80%", end: "bottom 65%", scrub: 0.8 } }); }, { scope: root });
   function remix(work) { setDraft({ prompt: work.prompt, model: work.model, size: work.size, mode: "图生图" }); navigate("/create"); setToast("已复制整套参数，可直接开始创作"); }
   return <section className="content-page community-page" ref={root}><PageHeading eyebrow="DISCOVER" title={<>灵感</>} description="看见喜欢的，带去继续创作。" action={<button className="primary-action" onClick={() => navigate("/create")}><WandSparkles size={16} />去创作</button>} />
-    <section className="community-bento"><article className="bento-hero" onClick={() => setSelected(works[0])}><img src={works[0].image} alt="" /><div><span>本周精选</span><h2>{works[0].title}</h2><p>来自 {works[0].author} 的公开作品</p></div></article><article className="bento-prompt"><span>可以被复刻的画面</span><p>“{works[1].prompt.slice(0, 36)}...”</p><button onClick={() => remix(works[1])}>带走这套参数 <ArrowRight size={15} /></button></article><article className="bento-event"><span>正在进行</span><strong>#手机壁纸</strong><p>1,284 份灵感正在生长</p></article><article className="bento-creator"><img src={works[2].avatar} alt="" /><div><b>{works[2].author}</b><span>把夜色做成海报的人</span></div><button onClick={() => setFollowing((items) => items.includes(works[2].authorId) ? items.filter((id) => id !== works[2].authorId) : [...items, works[2].authorId])}>{following.includes(works[2].authorId) ? "已关注" : "关注"}</button></article></section>
+    <section className="community-bento"><article className="bento-hero" onClick={() => setSelected(works[0])}><img src={works[0].image} alt="" /><div><span>本周精选</span><h2>{works[0].title}</h2><p>来自 {works[0].author} 的公开作品</p></div></article><article className="bento-prompt"><span>可以被复刻的画面</span><p>"{works[1].prompt.slice(0, 36)}..."</p><button onClick={() => remix(works[1])}>带走这套参数 <ArrowRight size={15} /></button></article><article className="bento-event"><span>正在进行</span><strong>#手机壁纸</strong><p>1,284 份灵感正在生长</p></article><article className="bento-creator"><img src={works[2].avatar} alt="" /><div><b>{works[2].author}</b><span>把夜色做成海报的人</span></div><button onClick={() => setFollowing((items) => items.includes(works[2].authorId) ? items.filter((id) => id !== works[2].authorId) : [...items, works[2].authorId])}>{following.includes(works[2].authorId) ? "已关注" : "关注"}</button></article></section>
     <div className="community-filter"><div>{categories.map((item) => <button key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div><button className="sort-button">热门 <ChevronDown size={14} /></button></div>
     <section className="community-feed"><aside><span>作品会因为<br />新的观看方式<br />重新活一次。</span></aside><div className="feed-grid">{list.map((work) => <article className="feed-card" key={work.id}><button className="image-hit" onClick={() => setSelected(work)}><img src={work.image} alt={work.title} /></button><div className="feed-meta"><div><img src={work.avatar} alt="" /><span>{work.author}</span></div><button onClick={() => toggleWork(work.id, "liked")} className={work.liked ? "liked" : ""}><Heart size={15} fill={work.liked ? "currentColor" : "none"} />{formatNumber(work.likes)}</button></div><h3>{work.title}</h3><div className="feed-actions"><button onClick={() => remix(work)}><Copy size={14} />复刻同款</button><button onClick={() => toggleWork(work.id, "saved")}><Bookmark size={14} fill={work.saved ? "currentColor" : "none"} /></button></div></article>)}</div></section>
     {selected && <CommunityModal work={selected} onClose={() => setSelected(null)} onRemix={() => remix(selected)} />}
@@ -1132,9 +1266,212 @@ function PageHeading({ title, description, action }) {
   return <header className="page-heading"><div><h1>{title}</h1><p>{description}</p></div>{action && <div className="heading-side">{action}</div>}</header>;
 }
 
-function Modal({ title, children, onClose }) {
-  // 以通用遮罩承载详情、编辑和解析界面。
-  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal" onMouseDown={(event) => event.stopPropagation()}><header><h2>{title}</h2><button onClick={onClose}><X size={19} /></button></header>{children}</section></div>;
+function Modal({ title, children, onClose, headerExtra }) {
+  // 以通用遮罩承载详情、编辑和解析界面；headerExtra 渲染在标题右侧，用于放置轻量操作。
+  return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal" onMouseDown={(event) => event.stopPropagation()}><header><div className="modal-title-group"><h2>{title}</h2>{headerExtra}</div><button onClick={onClose}><X size={19} /></button></header>{children}</section></div>;
+}
+
+/**
+ * 发布提示词模板弹窗：创作页与提示词库草稿共用的发布入口。
+ * 从 props 接收提示词、标签与候选封面，发布成功后回调 onPublished 供调用方做善后处理。
+ */
+export function TemplatePublishModal({ onClose, prompt, tags = [], coverImages = [], referenceSlots = [], modelDefaults = {}, onPublished }) {
+  const { setToast } = useStore();
+  const [templateSaving, setTemplateSaving] = useState(false);
+  const [selectedCover, setSelectedCover] = useState("");
+  // AI 生成模板名称/简介的请求状态：请求中禁用按钮并显示加载文案。
+  const [metadataGenerating, setMetadataGenerating] = useState(false);
+
+  // 弹窗关闭时重置内部状态，避免下次打开时残留上次的选中封面。
+  function handleClose() {
+    setSelectedCover("");
+    setMetadataGenerating(false);
+    setTemplateSaving(false);
+    onClose();
+  }
+
+  /** 调用大模型，根据提示词、标签和候选封面生成模板名称与简介并回填表单。 */
+  async function generateTemplateMetadata(event) {
+    event.preventDefault();
+    if (metadataGenerating) return;
+    // 按钮在 Modal headerExtra 内，不在 form 内部，无法通过 closest("form") 查找，改为直接查询弹窗内的表单元素。
+    const titleInput = document.querySelector('.modal form [name="title"]');
+    const descriptionInput = document.querySelector('.modal form [name="description"]');
+    if (!titleInput || !descriptionInput) {
+      console.warn("找不到模板名称或简介输入框");
+      return;
+    }
+    if (!prompt.trim()) {
+      setToast("请先填写提示词内容");
+      return;
+    }
+    setMetadataGenerating(true);
+    try {
+      // 筛选有效的候选封面：草稿的本地 blob URL 无法传给后端，需要过滤掉。
+      const validCoverUrl = (selectedCover || coverImages[0] || "").trim();
+      const canSendCover = validCoverUrl && !validCoverUrl.startsWith("blob:");
+      
+      const response = await fetch("/ai/prompts/generate-metadata", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userPrompt: prompt.trim(),
+          // 标签只传有效项，帮助模型理解画面构成；空数组表示尚未生成标签。
+          tags: (tags || [])
+            .filter((tag) => String(tag?.key || "").trim() && String(tag?.value || "").trim())
+            .map((tag) => ({ key: String(tag.key).trim(), value: String(tag.value).trim() })),
+          // 草稿的本地 blob URL 后端无法访问，只传有效的远程图片 URL；空字符串表示无封面可用。
+          resultImageUrl: canSendCover ? validCoverUrl : ""
+        })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "模板信息生成失败，请稍后重试");
+      if (!data.title || !data.description) throw new Error("未获得有效的模板名称与简介");
+      // 仅当用户未手动填写时才回填，避免覆盖已输入的内容。
+      if (!titleInput.value.trim()) titleInput.value = data.title;
+      if (!descriptionInput.value.trim()) descriptionInput.value = data.description;
+      setToast("模板名称与简介已生成，可继续编辑");
+    } catch (error) {
+      setToast(error.message || "模板信息生成失败，请稍后重试");
+    } finally {
+      setMetadataGenerating(false);
+    }
+  }
+
+  /** 发布当前模板，封面优先使用手动选中的图片。 */
+  async function publishCurrentTemplate(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const title = String(form.get("title") || "").trim();
+    if (!title || !prompt.trim()) {
+      setToast("请填写模板名称和提示词内容");
+      return;
+    }
+    setTemplateSaving(true);
+    // 封面 URL 同样过滤掉本地 blob，避免草稿发布时把无效 URL 存入数据库。
+    const finalCoverUrl = (selectedCover || coverImages[0] || "").trim();
+    const payload = {
+      title,
+      description: String(form.get("description") || "").trim(),
+      categoryCode: String(form.get("category") || "插画"),
+      visibility: String(form.get("visibility") || "private"),
+      userPromptTemplate: prompt.trim(),
+      builderSnapshot: null,
+      referenceSlots,
+      tags,
+      modelDefaults,
+      coverUrl: finalCoverUrl.startsWith("blob:") ? "" : finalCoverUrl
+    };
+    try {
+      const response = await fetch("/prompt_templates", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!response.ok) throw new Error("模板发布失败");
+      handleClose();
+      onPublished?.(payload);
+      setToast(payload.coverUrl ? "模板已发布，封面已设置" : "模板已发布");
+    } catch (error) {
+      setToast(error.message || "模板发布失败");
+    } finally {
+      setTemplateSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="发布提示词"
+      onClose={handleClose}
+      headerExtra={
+        <button className="template-ai-generate" type="button" onClick={generateTemplateMetadata} disabled={metadataGenerating}>
+          <Sparkles size={13} className={metadataGenerating ? "ai-spin" : ""} />
+          {metadataGenerating ? "灵感凝合中…" : "AI 补全"}
+        </button>
+      }
+    >
+      <form className="template-form" onSubmit={publishCurrentTemplate}>
+        <div className="template-form-section">
+          <label>
+            <span className="template-form-label-text">模板名称</span>
+            <input name="title" autoFocus required placeholder="例如：明信片风格" />
+          </label>
+        </div>
+
+        <div className="template-form-section">
+          <label>
+            <span className="template-form-label-text">模板简介</span>
+            <textarea name="description" placeholder="说明模板适合的场景和用途" />
+          </label>
+        </div>
+
+        <div className="template-form-section">
+          <label>
+            <span className="template-form-label-text">模板分类</span>
+            <select name="category" defaultValue="插画">
+              <option>插画</option>
+              <option>头像</option>
+              <option>海报</option>
+              <option>壁纸</option>
+              <option>明信片</option>
+              <option>小红书插图</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="template-form-section">
+          <label>
+            <span className="template-form-label-text">发布权限</span>
+            <select name="visibility" defaultValue="private">
+              <option value="public">社区（所有人可见）</option>
+              <option value="followers">关注我的人可见</option>
+              <option value="private">私有（仅自己可见）</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="template-form-section">
+          <span className="template-form-label-text">封面图片</span>
+          <div className="template-cover-picker">
+            <div className="cover-options">
+              {coverImages.map((image, index) => (
+                <div
+                  key={index}
+                  className={`cover-option ${selectedCover === image ? "selected" : ""}`}
+                  onClick={() => setSelectedCover(image)}
+                >
+                  <img src={image} alt={`候选封面 ${index + 1}`} />
+                </div>
+              ))}
+              <label className="cover-option upload">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = () => setSelectedCover(String(reader.result));
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                />
+                <UploadCloud size={22} />
+                <span>自定义上传</span>
+              </label>
+            </div>
+            {!selectedCover && coverImages.length === 0 && (
+              <small style={{ color: "#9EA08C", fontSize: "12px", fontStyle: "italic" }}>
+                暂无生成图，请上传封面或稍后同步
+              </small>
+            )}
+          </div>
+        </div>
+
+        <button className="primary-action" type="submit" disabled={templateSaving}>
+          <ArrowUpRight size={16} />
+          {templateSaving ? "发布中…" : "发布模板"}
+        </button>
+      </form>
+    </Modal>
+  );
 }
 
 export default LegacyApp;
