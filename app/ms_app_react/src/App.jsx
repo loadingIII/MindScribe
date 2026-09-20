@@ -1,16 +1,24 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertCircle, X } from "lucide-react";
 import AppShell from "./components/AppShell";
 import { ROUTES } from "./config/routes";
+import { WORKSPACE_OWNER_KEY } from "./config/constants";
+import { setActiveDraftUser } from "./utils/draftStorage";
 import CreatePage from "./pages/CreatePage";
 import ProfilePage from "./pages/ProfilePage";
 import PromptsPage from "./pages/PromptsPage";
 import LoginPage from "./pages/LoginPage";
 import ImgsPromptPage from "./components/ImgsPromptPage/ImgsPromptPage";
+import { useStore } from "./store/AppStore";
 
 function readUser() {
   try { return JSON.parse(localStorage.getItem("mindscribe-user")); } catch { return null; }
+}
+
+/** 读取当前创作数据归属账号，用于判断是否发生了账号切换；null 表示从未记录。 */
+function readOwner() {
+  try { return localStorage.getItem(WORKSPACE_OWNER_KEY); } catch { return null; }
 }
 
 /** 将页面功能装配到带全局导航的路由壳中。 */
@@ -18,6 +26,10 @@ export default function App() {
   const [user, setUser] = useState(readUser);
   const [authChecked, setAuthChecked] = useState(false);
   const [notice, setNotice] = useState("");
+  // 记录当前创作数据归属的账号 ID，用于检测账号切换并清空创作模块。
+  const { resetWorkspace } = useStore();
+  const ownerId = user?.userId || user?.id || "";
+  const ownerRef = useRef(readOwner());
 
   useEffect(() => {
     let active = true;
@@ -46,6 +58,23 @@ export default function App() {
       .finally(() => { if (active) setAuthChecked(true); });
     return () => { active = false; window.removeEventListener("mindscribe-auth-invalid", invalidate); window.removeEventListener("mindscribe-api-error", showError); };
   }, []);
+
+  // 账号变化时同步归属标记并清空创作模块：退出登录、会话失效、换号登录都会经过这里。
+  useEffect(() => {
+    const previousOwner = ownerRef.current;
+    // 归属与当前账号一致（含刷新后恢复正常）则无需清理。
+    if (ownerId === previousOwner) return;
+    ownerRef.current = ownerId;
+    try {
+      // 始终写入标记（登出写空串），以便区分"已记录登出"和"从未记录"。
+      localStorage.setItem(WORKSPACE_OWNER_KEY, ownerId);
+    } catch { /* 存储不可用时跳过标记，不影响清理流程。 */ }
+    // 从未记录归属（如升级后首次刷新）时直接认领现有数据，避免误清已登录用户的工作台；
+    // 其余归属变化一律重置创作模块。
+    if (previousOwner !== null) resetWorkspace();
+    // 重置会把草稿归属清空，这里最后把归属指向当前账号，保证草稿按账号分键。
+    setActiveDraftUser(ownerId || null);
+  }, [ownerId, resetWorkspace]);
 
   if (!authChecked) return null;
   return <><Routes>

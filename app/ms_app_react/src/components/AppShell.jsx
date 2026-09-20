@@ -13,7 +13,7 @@ const navItems = [
 
 /** 提供应用侧边导航、顶部状态栏和全局通知。 */
 export default function AppShell({ onLogout }) {
-  const { credits, toast } = useStore();
+  const { credits, toast, resetWorkspace } = useStore();
   const location = useLocation();
   const navigate = useNavigate();
   const isCreateHome = location.pathname === ROUTES.create;
@@ -63,6 +63,8 @@ export default function AppShell({ onLogout }) {
   async function logout() {
     await fetch("/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
     localStorage.removeItem("mindscribe-user");
+    // 退出前重置创作工作台，清除任务状态、参考图等本地缓存，避免遗留到下一个账号。
+    resetWorkspace();
     onLogout?.();
     navigate(ROUTES.login, { replace: true });
   }

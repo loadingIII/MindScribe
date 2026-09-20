@@ -2,10 +2,13 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, LockKeyhole, WandSparkles } from "lucide-react";
 import { ROUTES } from "../config/routes";
+import { useStore } from "../store/AppStore";
 
 /** 登录页面：使用后端 Session 建立当前浏览器会话。 */
 export default function LoginPage({ onLogin }) {
   const navigate = useNavigate();
+  // 拿到创作工作台重置能力：换号登录前先清空上一个账号的创作数据。
+  const { resetWorkspace } = useStore();
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -49,6 +52,8 @@ export default function LoginPage({ onLogin }) {
       if (!response.ok) { const result = await response.json().catch(() => ({})); throw new Error(result.message || (isRegister ? "注册失败，请检查注册信息" : "登录服务暂时不可用")); }
       const user = await response.json();
       localStorage.setItem("mindscribe-user", JSON.stringify(user));
+      // 切换到新账号前先重置创作工作台，确保创作页挂载时读不到上一个账号的缓存。
+      resetWorkspace();
       onLogin(user);
       navigate(ROUTES.create, { replace: true });
     } catch (requestError) { setError(requestError.message || "登录失败，请稍后重试"); }

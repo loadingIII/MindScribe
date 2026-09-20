@@ -1,10 +1,61 @@
 /**
  * 草稿存储工具
  * 用于管理图像解析等功能产生的草稿数据
+ * 草稿按登录账号分键存储，切换账号后互相不可见
  */
 
 const DRAFT_STORAGE_KEY = "mindscribe_drafts";
+// 记录当前草稿归属账号的键，用于在页面刷新后恢复分键归属。
+const ACTIVE_DRAFT_USER_KEY = "mindscribe_drafts_active_user";
 const DRAFT_EXPIRY_DAYS = 7; // 草稿保留天数
+
+// 当前草稿归属的账号 ID，登录或恢复会话时由应用层设置。
+let activeDraftUserId = null;
+try {
+  activeDraftUserId = localStorage.getItem(ACTIVE_DRAFT_USER_KEY);
+} catch {
+  /* 存储不可用时保持未设置。 */
+}
+
+/**
+ * 设置草稿归属的账号，登录或切换账号时调用。
+ * 首次从未记录归属切换到已登录账号时，把旧版本按无后缀键保存的草稿迁移到该账号名下。
+ * @param {string|null} userId - 当前登录账号的唯一标识
+ */
+export function setActiveDraftUser(userId) {
+  const previousUserId = activeDraftUserId;
+  activeDraftUserId = userId || null;
+  try {
+    if (!previousUserId && activeDraftUserId) {
+      migrateLegacyDrafts(activeDraftUserId);
+    }
+    if (activeDraftUserId) {
+      localStorage.setItem(ACTIVE_DRAFT_USER_KEY, activeDraftUserId);
+    } else {
+      localStorage.removeItem(ACTIVE_DRAFT_USER_KEY);
+    }
+  } catch {
+    /* 存储不可用时忽略记录失败。 */
+  }
+}
+
+/** 把升级前按旧键保存的草稿迁移到指定账号的分键下（仅当目标分键不存在时）。 */
+function migrateLegacyDrafts(userId) {
+  const legacy = localStorage.getItem(DRAFT_STORAGE_KEY);
+  if (legacy === null) return;
+  const scopedKey = `${DRAFT_STORAGE_KEY}:${userId}`;
+  if (localStorage.getItem(scopedKey) === null) {
+    localStorage.setItem(scopedKey, legacy);
+  }
+  localStorage.removeItem(DRAFT_STORAGE_KEY);
+}
+
+/** 当前账号的草稿存储键；未设置账号时沿用旧键，兼容升级前的数据。 */
+function currentDraftKey() {
+  return activeDraftUserId
+    ? `${DRAFT_STORAGE_KEY}:${activeDraftUserId}`
+    : DRAFT_STORAGE_KEY;
+}
 
 /**
  * 生成唯一的草稿 ID
@@ -14,11 +65,11 @@ function generateDraftId() {
 }
 
 /**
- * 获取所有草稿
+ * 获取所有草稿（仅当前账号的草稿）
  */
 function getAllDrafts() {
   try {
-    const stored = localStorage.getItem(DRAFT_STORAGE_KEY);
+    const stored = localStorage.getItem(currentDraftKey());
     if (!stored) return [];
     const drafts = JSON.parse(stored);
     return Array.isArray(drafts) ? drafts : [];
@@ -50,7 +101,7 @@ export function saveDraft(draftData, existingId = null) {
       const index = drafts.findIndex((d) => d.id === existingId);
       if (index !== -1) {
         drafts[index] = { ...drafts[index], ...draftData, updatedAt: now };
-        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(drafts));
+        localStorage.setItem(currentDraftKey(), JSON.stringify(drafts));
         return existingId;
       }
     }
@@ -64,7 +115,7 @@ export function saveDraft(draftData, existingId = null) {
     };
 
     drafts.push(draft);
-    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(drafts));
+    localStorage.setItem(currentDraftKey(), JSON.stringify(drafts));
 
     return draft.id;
   } catch (error) {
@@ -98,7 +149,7 @@ export function deleteDraft(draftId) {
   try {
     const drafts = getAllDrafts();
     const filtered = drafts.filter((d) => d.id !== draftId);
-    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(filtered));
+    localStorage.setItem(currentDraftKey(), JSON.stringify(filtered));
     return true;
   } catch (error) {
     console.error("删除草稿失败:", error);
@@ -139,9 +190,9 @@ export function cleanupOldDrafts() {
     });
     
     const removedCount = drafts.length - validDrafts.length;
-    
+
     if (removedCount > 0) {
-      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(validDrafts));
+      localStorage.setItem(currentDraftKey(), JSON.stringify(validDrafts));
     }
     
     return removedCount;

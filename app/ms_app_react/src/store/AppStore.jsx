@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { starterLibrary, starterPrompts, starterWorks } from "../assets/mockData";
 
 const StoreContext = createContext(null);
@@ -13,6 +13,31 @@ export function clearCachedState(keys) {
     delete stateCache[key];
     try { localStorage.removeItem(`${CACHED_STATE_PREFIX}${key}`); } catch { /* 存储不可用时忽略清理失败。 */ }
   });
+}
+
+/**
+ * 清空创作相关的本地持久化数据与内存缓存（不含按账号分键的图像解析草稿）。
+ * 用于账号切换或退出登录，避免下一个账号看到上一个账号的遗留数据。
+ */
+export function clearWorkspaceStorage() {
+  // 先清内存缓存，再清各持久化存储；任何一项失败都不影响其余清理。
+  Object.keys(stateCache).forEach((key) => delete stateCache[key]);
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* 忽略清理失败。 */ }
+  try {
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith(CACHED_STATE_PREFIX))
+      .forEach((key) => localStorage.removeItem(key));
+  } catch { /* 忽略清理失败。 */ }
+  clearReferenceDatabase().catch(() => {});
+}
+
+/** 删除 IndexedDB 中持久化的本地参考图。 */
+function clearReferenceDatabase() {
+  return openReferenceDatabase().then((database) => new Promise((resolve, reject) => {
+    const request = database.transaction(REFERENCE_STORE_NAME, "readwrite").objectStore(REFERENCE_STORE_NAME).clear();
+    request.onsuccess = () => { database.close(); resolve(); };
+    request.onerror = () => { database.close(); reject(request.error); };
+  }));
 }
 
 function loadState() {
@@ -84,7 +109,9 @@ export async function saveCachedReferences(items) {
 }
 
 export function AppStore({ children }) {
-  const saved = loadState();
+  // loadState 每次渲染都会读 localStorage，这里只在首帧取一次作为初始值。
+  const [initialState] = useState(loadState);
+  const saved = initialState;
   const [prompts, setPrompts] = useState(saved.prompts || starterPrompts);
   const [works, setWorks] = useState(saved.works || starterWorks);
   const [library, setLibrary] = useState(saved.library || starterLibrary);
@@ -105,6 +132,29 @@ export function AppStore({ children }) {
   const [following, setFollowing] = useState(saved.following || ["yun"]);
   const [toast, setToast] = useState("");
 
+  /**
+   * 重置创作工作台：清空本地持久化与内存缓存，并把 React 状态恢复为初始值。
+   * 账号切换或退出登录时调用，避免上一个账号的数据遗留到下一个会话。
+   * 用 useCallback 固定引用，供账号变化检测的副作用安全依赖。
+   */
+  const resetWorkspace = useCallback(function resetWorkspace() {
+    clearWorkspaceStorage();
+    setPrompts(starterPrompts);
+    setWorks(starterWorks);
+    setLibrary(starterLibrary);
+    setDraft({
+      prompt: "",
+      model: "gpt-image-2",
+      size: "auto",
+      quality: "auto",
+      mode: "文本生图",
+      references: []
+    });
+    setCredits(2180);
+    setSettings({ public: true, remix: true, revealPrompt: true, downloads: true });
+    setFollowing(["yun"]);
+  }, []);
+
   // 仅持久化可恢复的远程 URL 与展示元数据；本地 File/blob 地址不写入 localStorage。
   const persistableReferences = (draft.references || [])
     .filter((item) => item?.url && !String(item.url).startsWith("blob:"))
@@ -119,7 +169,7 @@ export function AppStore({ children }) {
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 2500); return () => clearTimeout(timer); }, [toast]);
 
   const value = useMemo(() => ({
-    prompts, works, library, draft, credits, settings, following, toast, setDraft, setCredits, setSettings, setFollowing, setToast,
+    prompts, works, library, draft, credits, settings, following, toast, setDraft, setCredits, setSettings, setFollowing, setToast, resetWorkspace,
     togglePrompt: (id) => setPrompts((items) => items.map((item) => item.id === id ? { ...item, saved: !item.saved } : item)),
     toggleWork: (id, kind) => setWorks((items) => items.map((item) => item.id === id ? { ...item, [kind]: !item[kind], likes: kind === "liked" ? item.likes + (item.liked ? -1 : 1) : item.likes } : item)),
     addPrompt: (template) => setPrompts((items) => [{ ...template, id: crypto.randomUUID(), source: "我的", saved: true }, ...items]),
@@ -127,7 +177,7 @@ export function AppStore({ children }) {
     deletePrompt: (id) => setPrompts((items) => items.filter((item) => item.id !== id)),
     addComment: (id, comment) => setWorks((items) => items.map((item) => item.id === id ? { ...item, comments: [...item.comments, comment] } : item)),
     addLibraryWork: (work) => setLibrary((items) => [work, ...items])
-  }), [prompts, works, library, draft, credits, settings, following, toast]);
+  }), [prompts, works, library, draft, credits, settings, following, toast, resetWorkspace]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
 
