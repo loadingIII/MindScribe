@@ -13,6 +13,7 @@ export default function LoginPage({ onLogin }) {
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState("");
@@ -40,6 +41,11 @@ export default function LoginPage({ onLogin }) {
   async function submit(event) {
     event.preventDefault();
     if (!email.trim() || !password || (isRegister && (!displayName.trim() || !verificationCode.trim()))) { setError(isRegister ? "请完整填写注册信息" : "请输入邮箱和密码"); return; }
+    // 注册时校验密码规则与两次输入一致性，提前拦截避免等后端返回。
+    if (isRegister) {
+      if (password.length < 8 || password.length > 64) { setError("密码长度需在 8 到 64 位之间"); return; }
+      if (password !== confirmPassword) { setError("两次输入的密码不一致"); return; }
+    }
     setLoading(true); setError("");
     try {
       const response = await fetch(isRegister ? "/auth/register" : "/auth/login", {
@@ -70,12 +76,13 @@ export default function LoginPage({ onLogin }) {
       <form className="login-form" onSubmit={submit}>
         {isRegister && <label><span>显示名</span><input autoFocus value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="输入显示名" autoComplete="name" /></label>}
         <label><span>邮箱</span><input type="email" autoFocus={!isRegister} value={email} onChange={(event) => setEmail(event.target.value)} placeholder="输入邮箱" autoComplete="email" /></label>
-        <label><span>密码</span><div className="login-password"><LockKeyhole size={15} /><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="输入密码" autoComplete="current-password" /></div></label>
+        <label><span>密码{isRegister && <small className="field-hint">8-64 位</small>}</span><div className="login-password"><LockKeyhole size={15} /><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={isRegister ? "设置密码（至少 8 位）" : "输入密码"} autoComplete={isRegister ? "new-password" : "current-password"} /></div></label>
+        {isRegister && <label><span>确认密码</span><div className="login-password"><LockKeyhole size={15} /><input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="再次输入密码" autoComplete="new-password" /></div></label>}
         {isRegister && <label><span>邮箱验证码</span><div className="login-code"><input value={verificationCode} onChange={(event) => setVerificationCode(event.target.value)} placeholder="输入 6 位验证码" inputMode="numeric" maxLength={6} /><button type="button" onClick={sendCode} disabled={countdown > 0}>{countdown ? countdown + "s 后重发" : "获取验证码"}</button></div></label>}
         {error && <p className="login-error" role="alert">{error}</p>}
         <button className="login-submit" disabled={loading}>{loading ? (isRegister ? "正在创建…" : "正在验证…") : (isRegister ? "创建账号" : "进入工作台")}<ArrowRight size={16} /></button>
       </form>
-      <button className="login-switch" type="button" onClick={() => { setMode(isRegister ? "login" : "register"); setError(""); }}>{isRegister ? "已有账号？返回登录" : "还没有账号？立即注册"}</button>
+      <button className="login-switch" type="button" onClick={() => { setMode(isRegister ? "login" : "register"); setError(""); setConfirmPassword(""); }}>{isRegister ? "已有账号？返回登录" : "还没有账号？立即注册"}</button>
       <footer>MindScribe · 你的视觉实验室</footer>
     </section>
   </main>;

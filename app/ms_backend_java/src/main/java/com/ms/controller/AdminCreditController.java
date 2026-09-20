@@ -2,10 +2,12 @@ package com.ms.controller;
 
 import com.ms.mapper.CreditMapper;
 import com.ms.mapper.UserMapper;
+import com.ms.pojo.dto.AdminCreateUserRequest;
 import com.ms.pojo.dto.AdjustCreditRequest;
 import com.ms.pojo.entity.CreditTransactionEntity;
 import com.ms.service.CreditService;
 import com.ms.utils.LogUtil;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-/** 管理端积分接口：用户列表、积分调整、流水查询；由 AdminAuthInterceptor 保护。 */
+/** 管理端积分接口：用户列表、创建用户、积分调整、流水查询；由 AdminAuthInterceptor 保护。 */
 @RestController
 @RequestMapping("/admin")
 public class AdminCreditController {
@@ -30,12 +32,14 @@ public class AdminCreditController {
     private final CreditService creditService;
     private final CreditMapper creditMapper;
     private final com.ms.mapper.UserMapper userMapper;
+    private final PasswordEncoder passwordEncoder;
 
     public AdminCreditController(CreditService creditService, CreditMapper creditMapper,
-                                 UserMapper userMapper) {
+                                 UserMapper userMapper, PasswordEncoder passwordEncoder) {
         this.creditService = creditService;
         this.creditMapper = creditMapper;
         this.userMapper = userMapper;
+        this.passwordEncoder = passwordEncoder;
     }
 
     /** 分页查询用户（keyword 模糊匹配用户名/邮箱），返回含余额，供积分调整页使用。 */
@@ -51,6 +55,22 @@ public class AdminCreditController {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("total", total);
         result.put("items", rows);
+        return result;
+    }
+
+    /** 管理端直接创建普通用户账号：跳过邮箱验证码，角色固定 user，赠送与其他注册一致的 100 积分。 */
+    @PostMapping("/users")
+    public Map<String, Object> createUser(@RequestAttribute("userId") String operatorId,
+                                          @RequestBody AdminCreateUserRequest request) {
+        String email = request.email().trim().toLowerCase();
+        if (userMapper.countByEmail(email) > 0) throw new IllegalArgumentException("该邮箱已被注册");
+        String id = UUID.randomUUID().toString();
+        userMapper.insertUser(id, email, email, passwordEncoder.encode(request.password()), request.displayName().trim());
+        log.info("管理端创建用户成功，operator={} email={}", operatorId, email);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", id);
+        result.put("email", email);
+        result.put("displayName", request.displayName().trim());
         return result;
     }
 

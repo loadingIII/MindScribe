@@ -26,11 +26,14 @@ public class AuthController {
     private final AuthService authService;
     private final JwtService jwtService;
     private final RegisterCodeService registerCodeService;
+    private final com.ms.utils.OssStorageUtil ossStorageUtil;
 
-    public AuthController(AuthService authService, JwtService jwtService, RegisterCodeService registerCodeService) {
+    public AuthController(AuthService authService, JwtService jwtService, RegisterCodeService registerCodeService,
+                          com.ms.utils.OssStorageUtil ossStorageUtil) {
         this.authService = authService;
         this.jwtService = jwtService;
         this.registerCodeService = registerCodeService;
+        this.ossStorageUtil = ossStorageUtil;
     }
 
     /** 使用邮箱密码登录，并写入 JWT HttpOnly Cookie。 */
@@ -71,7 +74,7 @@ public class AuthController {
         return ResponseEntity.ok(user);
     }
 
-    /** 根据 JWT Cookie 返回当前登录用户。 */
+    /** 根据 JWT Cookie 返回当前登录用户（含昵称，供侧边栏与个人中心展示）。 */
     @GetMapping("/me")
     public ResponseEntity<?> me(jakarta.servlet.http.HttpServletRequest request) {
         String token = null;
@@ -79,10 +82,73 @@ public class AuthController {
             if (jwtService.cookieName().equals(cookie.getName())) token = cookie.getValue();
         try {
             var claims = jwtService.parse(token);
-            return ResponseEntity.ok(java.util.Map.of("userId", claims.getSubject(), "email", claims.get("email", String.class), "role", claims.get("role", String.class)));
+            String userId = claims.getSubject();
+            // 昵称与头像存库后可能被修改，JWT 里没有这些字段，这里回查数据库取最新值。
+            var user = authService.findActiveById(userId);
+            String displayName = user == null ? "" : user.displayName();
+            String avatarUrl = authService.avatarOf(userId);
+            java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("userId", userId);
+            body.put("email", claims.get("email", String.class));
+            body.put("role", claims.get("role", String.class));
+            body.put("displayName", displayName);
+            body.put("avatarUrl", avatarUrl == null ? "" : avatarUrl);
+            return ResponseEntity.ok(body);
         } catch (Exception ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("{\"code\":\"UNAUTHORIZED\",\"message\":\"请先登录\"}");
         }
+    }
+
+    /** 修改当前登录用户的昵称，返回更新后的用户信息。 */
+    @PostMapping("/profile")
+    public ResponseEntity<?> updateProfile(@org.springframework.web.bind.annotation.RequestBody com.ms.pojo.dto.UpdateProfileRequest request,
+                                           jakarta.servlet.http.HttpServletRequest servletRequest) {
+        // /auth 路径不经过 JWT 拦截器，这里与 me() 一致手动解析 Cookie 取当前用户。
+        String userId = currentUserId(servletRequest);
+        if (userId == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("{\"code\":\"UNAUTHORIZED\",\"message\":\"请先登录\"}");
+        LoginVO user = authService.updateDisplayName(userId, request == null ? null : request.displayName());
+        if (user == null) return ResponseEntity.status(HttpStatus.NOT_FOUND).body("{\"code\":\"USER_NOT_FOUND\",\"message\":\"用户不存在或已被禁用\"}");
+        return ResponseEntity.ok(user);
+    }
+
+    /** 上传头像图片到 OSS 并写入用户资料，返回可直接访问的头像地址。 */
+    @PostMapping("/avatar")
+    public ResponseEntity<?> uploadAvatar(@org.springframework.web.bind.annotation.RequestParam("file") org.springframework.web.multipart.MultipartFile file,
+                                          jakarta.servlet.http.HttpServletRequest servletRequest) {
+        String userId = currentUserId(servletRequest);
+        if (userId == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("{\"code\":\"UNAUTHORIZED\",\"message\":\"请先登录\"}");
+        if (file == null || file.isEmpty()) throw new IllegalArgumentException("请选择头像图片");
+        // 只接受常见图片格式，避免把任意文件存成头像。
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) throw new IllegalArgumentException("头像必须是图片文件");
+        if (file.getSize() > 5 * 1024 * 1024) throw new IllegalArgumentException("头像图片不能超过 5MB");
+        try {
+            String url = ossStorageUtil.upload(file, "avatars");
+            String saved = authService.updateAvatar(userId, url);
+            if (saved == null) return ResponseEntity.status(HttpStatus.NOT_FOUND).body("{\"code\":\"USER_NOT_FOUND\",\"message\":\"用户不存在或已被禁用\"}");
+            return ResponseEntity.ok(java.util.Map.of("avatarUrl", saved));
+        } catch (java.io.IOException ex) {
+            log.warn("头像上传失败，userId={}", userId, ex);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("{\"code\":\"UPLOAD_FAILED\",\"message\":\"头像上传失败，请稍后重试\"}");
+        }
+    }
+
+    /** 返回当前登录用户的头像地址；未设置时 avatarUrl 为空字符串。 */
+    @GetMapping("/avatar")
+    public ResponseEntity<?> avatar(jakarta.servlet.http.HttpServletRequest servletRequest) {
+        String userId = currentUserId(servletRequest);
+        if (userId == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("{\"code\":\"UNAUTHORIZED\",\"message\":\"请先登录\"}");
+        String url = authService.avatarOf(userId);
+        return ResponseEntity.ok(java.util.Map.of("avatarUrl", url == null ? "" : url));
+    }
+
+    /** 从请求 Cookie 中解析当前登录用户 ID；未登录时返回 null。 */
+    private String currentUserId(jakarta.servlet.http.HttpServletRequest request) {
+        if (request.getCookies() != null) for (jakarta.servlet.http.Cookie cookie : request.getCookies())
+            if (jwtService.cookieName().equals(cookie.getName())) {
+                try { return jwtService.parse(cookie.getValue()).getSubject(); } catch (Exception ignored) { }
+            }
+        return null;
     }
 
     /** 清理 JWT Cookie，结束当前浏览器登录状态。 */

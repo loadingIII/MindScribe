@@ -45,6 +45,8 @@ td.pos { color: #1f7a3d; font-weight: 600; }
 /* 提示与筛选 */
 .form-error { color: #b03a2e; background: #fbeae7; border-radius: 8px; padding: 8px 12px; font-size: 13px; }
 .form-ok { color: #1f7a3d; background: #e5f5ea; border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+.muted-note { color: #98a6b8; font-size: 12.5px; align-self: center; }
+.code-value { font-family: Consolas, monospace; font-size: 15px; letter-spacing: 2px; color: #1c2333; }
 .filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
 .filters select, .filters input { width: auto; }
 .filters .inline { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #66788f; }

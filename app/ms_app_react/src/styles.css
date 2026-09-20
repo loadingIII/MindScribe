@@ -1790,7 +1790,6 @@ img {
   height:75px;
   object-fit:cover;
   border-radius:50%;
-  filter:grayscale(1);
 }
 .account-person span,.credit-balance>span {
   color:var(--mist);
@@ -2087,11 +2086,11 @@ img {
   position: relative;
   z-index: 1;
   width: min(450px, calc(100vw - 48px));
-  padding: 42px 46px 32px;
-  border: none;
-  background: var(--neo-surface);
+  padding: 36px 42px 28px;
+  border: 1px solid rgba(255, 255, 255, .65);
+  background: linear-gradient(160deg, #F3F4F8 0%, var(--neo-surface) 55%, #E9EBF2 100%);
   box-shadow: var(--neo-shadow-deep);
-  border-radius: 24px;
+  border-radius: 26px;
   backdrop-filter: blur(20px);
   animation: login-rise .7s cubic-bezier(.22,.8,.25,1) both;
 }
@@ -2118,7 +2117,7 @@ img {
   font-style: normal;
 }
 .login-copy {
-  margin: 58px 0 34px;
+  margin: 34px 0 26px;
 }
 .login-copy small {
   color: var(--neo-primary);
@@ -2126,9 +2125,9 @@ img {
   letter-spacing: .13em;
 }
 .login-copy h1 {
-  margin: 14px 0 13px;
-  font: 600 clamp(37px, 5vw, 54px)/1.14 var(--serif);
-  letter-spacing: -.06em;
+  margin: 12px 0 11px;
+  font: 600 clamp(33px, 4.6vw, 46px)/1.16 var(--serif);
+  letter-spacing: -.05em;
   color: var(--neo-text);
 }
 .login-copy h1 em {
@@ -2144,31 +2143,40 @@ img {
 }
 .login-form {
   display:grid;
-  gap:19px;
+  gap:15px;
 }
 .login-form label {
   display:grid;
-  gap:8px;
+  gap:7px;
   color:var(--mist);
   font:10px var(--mono);
   letter-spacing:.05em;
 }
+/* 标签行内的小号规则提示，如密码的"8-64 位"。 */
+.login-form label .field-hint {
+  margin-left: 6px;
+  color: var(--neo-text-muted);
+  font: 10px var(--sans);
+  letter-spacing: 0;
+}
 .login-form input {
   width: 100%;
-  height: 48px;
+  height: 47px;
   padding: 0 16px;
   color: var(--neo-text);
-  border: none;
-  border-radius: 16px;
+  border: 1px solid transparent;
+  border-radius: 15px;
   outline: 0;
-  background: var(--neo-surface);
+  background: #F4F5F9;
   box-shadow: var(--neo-shadow-pressed);
   font: 13px var(--sans);
+  transition: border-color .18s ease, box-shadow .18s ease;
 }
 .login-form input:focus {
-  box-shadow: var(--neo-shadow-inset-deep);
-  outline: 2px solid rgba(136, 153, 204, 0.2);
-  outline-offset: -2px;
+  border-color: rgba(136, 153, 204, .55);
+  background: #F7F8FB;
+  box-shadow: var(--neo-shadow-inset-light), 0 0 0 3px rgba(168, 184, 232, .16);
+  outline: none;
 }
 .login-form input::placeholder {
   color: var(--neo-text-muted);
@@ -2177,31 +2185,47 @@ img {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 16px;
-  border-radius: 16px;
-  background: var(--neo-surface);
+  padding: 0 15px;
+  border: 1px solid transparent;
+  border-radius: 15px;
+  background: #F4F5F9;
   box-shadow: var(--neo-shadow-pressed);
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.login-password:focus-within {
+  border-color: rgba(136, 153, 204, .55);
+  background: #F7F8FB;
+  box-shadow: var(--neo-shadow-inset-light), 0 0 0 3px rgba(168, 184, 232, .16);
 }
 .login-password svg {
   color: var(--neo-text-muted);
 }
 .login-password input {
   padding: 0;
+  border: none;
   background: transparent;
   box-shadow: none;
 }
 .login-password input:focus {
   outline: none;
   box-shadow: none;
+  border: none;
 }
 .login-code {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 16px;
-  border-radius: 16px;
-  background: var(--neo-surface);
+  padding: 0 6px 0 15px;
+  border: 1px solid transparent;
+  border-radius: 15px;
+  background: #F4F5F9;
   box-shadow: var(--neo-shadow-pressed);
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.login-code:focus-within {
+  border-color: rgba(136, 153, 204, .55);
+  background: #F7F8FB;
+  box-shadow: var(--neo-shadow-inset-light), 0 0 0 3px rgba(168, 184, 232, .16);
 }
 .login-code input {
   flex: 1;
@@ -2235,9 +2259,16 @@ img {
   box-shadow: var(--neo-shadow-pressed);
 }
 .login-error {
-  margin:-6px 0 0;
-  color:#b35e4e;
-  font-size:11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -4px 0 0;
+  padding: 9px 13px;
+  color:#a24a3b;
+  background: rgba(211, 118, 98, .12);
+  border-radius: 11px;
+  font-size: 12px;
+  line-height: 1.5;
 }
 .login-submit {
   display: flex;
@@ -2268,10 +2299,11 @@ img {
   box-shadow: var(--neo-shadow-sm);
 }
 .login-panel footer {
-  margin-top:62px;
+  margin-top:26px;
   color:#9ba092;
   font:9px var(--mono);
   letter-spacing:.04em;
+  text-align: center;
 }
 @keyframes login-rise {
   from {
@@ -2922,7 +2954,6 @@ body {
   height:34px;
   border-radius:12px;
   object-fit:cover;
-  filter:saturate(.65);
 }
 .account-dock span:not(.account-arrow) {
   display:grid;
@@ -6595,4 +6626,113 @@ body {
     justify-content: center;
     padding: 9px 14px;
   }
+}
+
+/* 个人中心：昵称编辑与真实流水列表。 */
+.nickname-editor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 5px 0;
+}
+.nickname-editor input {
+  width: min(240px, 60vw);
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fffdf8;
+  color: var(--ink);
+  font: 600 18px var(--serif);
+  outline: none;
+}
+.nickname-editor input:focus {
+  border-color: #b8d05b;
+}
+.nickname-editor button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fffdf8;
+  color: var(--ink);
+  cursor: pointer;
+}
+.nickname-editor button:hover:not(:disabled) {
+  border-color: #b8d05b;
+  color: #647918;
+}
+.nickname-editor button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+.nickname-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 10px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf8;
+  color: var(--mist);
+  vertical-align: middle;
+  cursor: pointer;
+}
+.nickname-edit-btn:hover {
+  color: #647918;
+  border-color: #b8d05b;
+}
+.credit-balance>span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ledger-empty {
+  margin: 0;
+  padding: 18px 0;
+  color: var(--mist);
+  font-size: 12px;
+}
+
+/* 个人中心：头像更换按钮（悬停出现遮罩提示）。 */
+.avatar-edit {
+  position: relative;
+  flex: 0 0 auto;
+  width: 75px;
+  height: 75px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  cursor: pointer;
+  background: transparent;
+}
+.avatar-edit img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.avatar-edit-mask {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 0;
+  color: #fff;
+  font-size: 10px;
+  background: rgba(30, 32, 24, .62);
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+.avatar-edit:hover:not(:disabled) .avatar-edit-mask,
+.avatar-edit:focus-visible .avatar-edit-mask {
+  opacity: 1;
+}
+.avatar-edit:disabled {
+  cursor: wait;
 }

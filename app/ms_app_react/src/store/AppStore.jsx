@@ -52,6 +52,11 @@ function loadState() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
 }
 
+/** 读取本地缓存的登录用户信息，供刷新后侧边栏立即展示昵称。 */
+function readStoredUser() {
+  try { return JSON.parse(localStorage.getItem("mindscribe-user")) || null; } catch { return null; }
+}
+
 // 模块级缓存：页面组件因路由切换卸载时保留最近一次状态，重新挂载时恢复，避免跨页切换丢状态。
 const stateCache = {};
 
@@ -120,6 +125,8 @@ export function AppStore({ children }) {
   // loadState 每次渲染都会读 localStorage，这里只在首帧取一次作为初始值。
   const [initialState] = useState(loadState);
   const saved = initialState;
+  // 当前登录用户（userId/email/displayName/role）：登录与 /auth/me 刷新后写入，供侧边栏与个人中心共用。
+  const [user, setUser] = useState(() => readStoredUser());
   const [prompts, setPrompts] = useState(saved.prompts || starterPrompts);
   const [works, setWorks] = useState(saved.works || starterWorks);
   const [library, setLibrary] = useState(saved.library || starterLibrary);
@@ -174,6 +181,47 @@ export function AppStore({ children }) {
     } catch { /* 网络异常时保留当前展示值，不影响页面使用。 */ }
   }, []);
 
+  /**
+   * 修改当前用户昵称：调用后端保存成功后同步本地缓存与状态，
+   * 侧边栏、个人中心等所有使用 user 的位置自动更新。
+   */
+  const updateDisplayName = useCallback(async function updateDisplayName(displayName) {
+    const response = await fetch("/auth/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName })
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(result.message || "昵称修改失败");
+    }
+    const updated = await response.json();
+    const next = { ...user, displayName: updated.displayName };
+    setUser(next);
+    try { localStorage.setItem("mindscribe-user", JSON.stringify(next)); } catch { /* 存储不可用时跳过缓存。 */ }
+    return updated.displayName;
+  }, [user]);
+
+  /**
+   * 上传新头像：multipart 提交到 /auth/avatar，成功后用返回的 OSS 地址
+   * 同步本地缓存与状态，侧边栏与个人中心的头像立即更新。
+   */
+  const uploadAvatar = useCallback(async function uploadAvatar(file) {
+    if (!file) throw new Error("请选择头像图片");
+    const form = new FormData();
+    form.append("file", file);
+    const response = await fetch("/auth/avatar", { method: "POST", body: form });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      throw new Error(result.message || "头像上传失败");
+    }
+    const data = await response.json();
+    const next = { ...user, avatarUrl: data.avatarUrl };
+    setUser(next);
+    try { localStorage.setItem("mindscribe-user", JSON.stringify(next)); } catch { /* 存储不可用时跳过缓存。 */ }
+    return data.avatarUrl;
+  }, [user]);
+
   // 仅持久化可恢复的远程 URL 与展示元数据；本地 File/blob 地址不写入 localStorage。
   const persistableReferences = (draft.references || [])
     .filter((item) => item?.url && !String(item.url).startsWith("blob:"))
@@ -188,7 +236,7 @@ export function AppStore({ children }) {
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 2500); return () => clearTimeout(timer); }, [toast]);
 
   const value = useMemo(() => ({
-    prompts, works, library, draft, credits, settings, following, toast, setDraft, setCredits, setSettings, setFollowing, setToast, resetWorkspace, refreshBalance,
+    prompts, works, library, draft, credits, settings, following, toast, user, setDraft, setCredits, setSettings, setFollowing, setToast, setUser, resetWorkspace, refreshBalance, updateDisplayName, uploadAvatar,
     togglePrompt: (id) => setPrompts((items) => items.map((item) => item.id === id ? { ...item, saved: !item.saved } : item)),
     toggleWork: (id, kind) => setWorks((items) => items.map((item) => item.id === id ? { ...item, [kind]: !item[kind], likes: kind === "liked" ? item.likes + (item.liked ? -1 : 1) : item.likes } : item)),
     addPrompt: (template) => setPrompts((items) => [{ ...template, id: crypto.randomUUID(), source: "我的", saved: true }, ...items]),
@@ -196,7 +244,7 @@ export function AppStore({ children }) {
     deletePrompt: (id) => setPrompts((items) => items.filter((item) => item.id !== id)),
     addComment: (id, comment) => setWorks((items) => items.map((item) => item.id === id ? { ...item, comments: [...item.comments, comment] } : item)),
     addLibraryWork: (work) => setLibrary((items) => [work, ...items])
-  }), [prompts, works, library, draft, credits, settings, following, toast, resetWorkspace, refreshBalance]);
+  }), [prompts, works, library, draft, credits, settings, following, toast, user, resetWorkspace, refreshBalance, updateDisplayName, uploadAvatar]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
 

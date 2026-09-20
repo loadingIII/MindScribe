@@ -27,7 +27,7 @@ export default function App() {
   const [authChecked, setAuthChecked] = useState(false);
   const [notice, setNotice] = useState("");
   // 记录当前创作数据归属的账号 ID，用于检测账号切换并清空创作模块。
-  const { resetWorkspace, refreshBalance } = useStore();
+  const { resetWorkspace, refreshBalance, setUser: setStoreUser } = useStore();
   const ownerId = user?.userId || user?.id || "";
   const ownerRef = useRef(readOwner());
 
@@ -35,7 +35,7 @@ export default function App() {
     let active = true;
     const invalidate = () => {
       localStorage.removeItem("mindscribe-user");
-      if (active) { setUser(null); setAuthChecked(true); }
+      if (active) { setUser(null); setStoreUser(null); setAuthChecked(true); }
     };
     const showError = (event) => {
       setNotice(event.detail?.message || "请求失败，请稍后重试");
@@ -53,6 +53,8 @@ export default function App() {
         if (!active || !serverUser) return;
         localStorage.setItem("mindscribe-user", JSON.stringify(serverUser));
         setUser(serverUser);
+        // 同一份用户信息写入全局 Store，侧边栏与个人中心读到的昵称保持一致。
+        setStoreUser(serverUser);
         // 会话有效时同步一次积分余额，保证侧边栏与个人页展示真实数据。
         refreshBalance();
       })
@@ -77,6 +79,8 @@ export default function App() {
     // 重置会把草稿归属清空，这里最后把归属指向当前账号，保证草稿按账号分键。
     setActiveDraftUser(ownerId || null);
   }, [ownerId, resetWorkspace, refreshBalance]);
+  // 本地缓存的用户与 Store 用户保持同步（登录页 onLogin 只更新本地 state）。
+  useEffect(() => { if (user) setStoreUser(user); }, [user, setStoreUser]);
 
   if (!authChecked) return null;
   return <><Routes>

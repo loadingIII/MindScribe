@@ -15,7 +15,8 @@ export default function LoginPage({ onLogin }) {
     if (!email.trim() || !password) { setError("请输入邮箱和密码"); return; }
     setLoading(true); setError("");
     try {
-      const response = await fetch("/auth/login", {
+      // 管理端使用独立账号体系（admin_users 表）与专用登录接口，与客户端登录互不相干。
+      const response = await fetch("/auth/admin/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -26,11 +27,6 @@ export default function LoginPage({ onLogin }) {
         throw new Error(result.message || (response.status === 401 ? "邮箱或密码错误" : "登录服务暂时不可用"));
       }
       const user = await response.json();
-      // 非 admin 账号立即登出并拒绝进入。
-      if (user.role !== "admin") {
-        await fetch("/auth/logout", { method: "POST", credentials: "include" });
-        throw new Error("该账号没有管理员权限");
-      }
       localStorage.setItem("mindscribe-admin-user", JSON.stringify(user));
       onLogin(user);
       navigate("/", { replace: true });
