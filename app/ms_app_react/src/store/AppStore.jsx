@@ -7,6 +7,14 @@ const REFERENCE_DB_NAME = "mindscribe-reference-images";
 const REFERENCE_STORE_NAME = "images";
 const CACHED_STATE_PREFIX = "mindscribe-create-state:";
 
+/** 创作页可选的生图模型列表。 */
+export const IMAGE_MODELS = ["gpt-image-2"];
+
+/** 归一化模型值：已下线的模型（如 dall-e-3）统一迁移为当前默认模型。 */
+export function normalizeModel(model) {
+  return IMAGE_MODELS.includes(model) ? model : "gpt-image-2";
+}
+
 /** 清理指定的创作页缓存，避免新草稿恢复旧任务状态。 */
 export function clearCachedState(keys) {
   keys.forEach((key) => {
@@ -119,7 +127,8 @@ export function AppStore({ children }) {
   const [draft, setDraft] = useState({
     ...initialDraft,
     prompt: initialDraft.prompt || "",
-    model: initialDraft.model || "gpt-image-2",
+    // 旧草稿可能保存了已下线的模型（如 dall-e-3），加载时归一化为当前默认模型。
+    model: normalizeModel(initialDraft.model || "gpt-image-2"),
     // 旧版本默认尺寸为 1024×1024，迁移为新的自动默认值。
     size: initialDraft.size === "1024×1024" && !initialDraft.quality ? "auto" : (initialDraft.size || "auto"),
     quality: initialDraft.quality || "auto",

@@ -227,7 +227,7 @@ function downloadResultImage(url, filename) {
   triggerDownload(url, filename);
 }
 import { image } from "../../assets/mockData";
-import { loadCachedReferences, saveCachedReferences, useCachedState, useStore } from "../../store/AppStore";
+import { loadCachedReferences, saveCachedReferences, useCachedState, useStore, normalizeModel } from "../../store/AppStore";
 import { buildGenImgsPrompt, GEN_IMGS_SYSTEM_PROMPT } from "../../utils/prompts/gen_imgs_prompts";
 import SelectField from "../../components/SelectField";
 
@@ -455,7 +455,7 @@ export function CreatePage() {
                     ...current,
                     prompt: shouldRestorePrompt ? (targetAttempt.prompt || "") : current.prompt,
                     tags: shouldRestoreTags ? (targetAttempt.tags || []) : current.tags,
-                    model: targetAttempt.modelName || current.model,
+                    model: normalizeModel(targetAttempt.modelName || current.model),
                     size: targetAttempt.size || current.size,
                     quality: targetAttempt.quality || current.quality,
                     references: mappedThread.references || []
@@ -947,7 +947,7 @@ export function CreatePage() {
       ...current,
       prompt: attempt.prompt || "",
       tags: attempt.tags || [],
-      model: attempt.modelName || current.model,
+      model: normalizeModel(attempt.modelName || current.model),
       size: attempt.size || current.size,
       quality: attempt.quality || current.quality,
       references: restoredReferences
@@ -975,7 +975,7 @@ export function CreatePage() {
         <div className="control-title"><span>参考图</span><small>可选 · 最多 4 张</small></div>
         <div className={`reference-strip ${files.length ? "has-files" : "empty"}`} onDragOver={(event) => !referencesLocked && event.preventDefault()} onDrop={(event) => !referencesLocked && dropReferences(event)}>{files.map((item) => <div className="reference-item" key={item.id}><img src={item.url} alt={item.file.name} /><div className="reference-caption"><span>{item.file.name}</span>{!referencesLocked && <button onClick={() => removeReference(item.id)} title="移除参考图"><X size={13} /></button>}</div></div>)}{files.length < 4 && !referencesLocked && <label className="reference-add"><ImagePlus size={24} /><div><b>{files.length ? "继续添加" : "添加参考图"}</b><small>{files.length ? `${files.length}/4 张` : "点击或拖拽图片到这里"}</small></div><input type="file" accept="image/*" multiple onChange={(event) => addReferences(event.target.files)} /></label>}</div>
         <div className="prompt-editor"><div className="prompt-editor-head"><span>你的构想</span><div><small className="prompt-hint">输入 @ 关联参考图</small><button className="prompt-builder-trigger" type="button" onClick={() => navigate("/create/prompt-builder")} title="构建提示词"><Sparkles size={14} /><span>构建提示词</span></button></div></div><div ref={richPromptRef} className="rich-prompt" contentEditable suppressContentEditableWarning onInput={syncRichPrompt} onKeyDown={handleRichPromptKeyDown} data-placeholder="写下你的创作构想…" />{mentionOpen && mentionCandidates.length > 0 && <div className="mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择，Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>{referenceLabel(item.file.name)}</span><kbd>{index + 1}</kbd></button>)}</div>}<small className="prompt-count">{prompt.length}/5000</small></div>
-        <div className="control-fields"><SelectField label="模型" value={draft.model || "gpt-image-2"} options={["gpt-image-2", "dall-e-3"]} onChange={(value) => setDraft({ ...draft, model: value })} /><SelectField label="尺寸" value={normalizeSize(draft.size)} options={GPT_IMAGE_SIZE_OPTIONS} onChange={(value) => setDraft({ ...draft, size: value })} /><SelectField label="质量" value={normalizeQuality(draft.quality)} options={[{ value: "auto", label: "自动" }, { value: "low", label: "低" }, { value: "medium", label: "中" }, { value: "high", label: "高" }]} onChange={(value) => setDraft({ ...draft, quality: value })} /><SelectField label="数量" value="1" options={["1"]} disabled /></div>
+        <div className="control-fields"><SelectField label="模型" value={draft.model || "gpt-image-2"} options={["gpt-image-2"]} onChange={(value) => setDraft({ ...draft, model: value })} /><SelectField label="尺寸" value={normalizeSize(draft.size)} options={GPT_IMAGE_SIZE_OPTIONS} onChange={(value) => setDraft({ ...draft, size: value })} /><SelectField label="质量" value={normalizeQuality(draft.quality)} options={[{ value: "auto", label: "自动" }, { value: "low", label: "低" }, { value: "medium", label: "中" }, { value: "high", label: "高" }]} onChange={(value) => setDraft({ ...draft, quality: value })} /><SelectField label="数量" value="1" options={["1"]} disabled /></div>
         </div>
         <div className="control-footer"><button className="plain-button" type="button" onClick={() => setAdvancedOpen(true)}><Settings2 size={15} />高级参数</button><button className="create-button" onClick={startGeneration} disabled={!["idle", "failed", "done"].includes(status) || !prompt.trim()}><WandSparkles size={17} />{status === "idle" || status === "failed" || status === "done" ? (status === "failed" ? "重试" : status === "done" ? "重新生成" : "开始创作") : status === "queued" ? "待生成" : "生成中"}</button></div>
       </section>
@@ -1212,7 +1212,7 @@ export function LibraryPage() {
   const tabItems = { "我的作品": creationWorks, "收藏灵感": savedInspiration };
   const display = tabItems[tab];
   function continueWork(item) { // 使用当前作品的提示词和模型参数继续创作。
-    setDraft({ prompt: item.prompt, model: item.model, size: "auto", quality: "auto", mode: "图生图" }); navigate("/create"); setToast("已从此版本继续创作");
+    setDraft({ prompt: item.prompt, model: normalizeModel(item.model), size: "auto", quality: "auto", mode: "图生图" }); navigate("/create"); setToast("已从此版本继续创作");
   }
   return <section className="content-page library-page"><PageHeading title={<>我的画廊</>} description="沉淀作品与收藏的灵感。" action={<button className="primary-action" onClick={() => navigate("/create")}><Plus size={16} />继续创作</button>} />
     <div className="library-tabs">{["我的作品", "收藏灵感"].map((item) => <button className={tab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{item}</button>)}</div>
@@ -1233,7 +1233,7 @@ export function CommunityPage() {
   const { works, toggleWork, addComment, following, setFollowing, setDraft, setToast } = useStore(); const navigate = useNavigate(); const [category, setCategory] = useState("全部"); const [selected, setSelected] = useState(null); const root = useRef(null);
   const list = category === "全部" ? works : works.filter((item) => item.category === category);
   useGSAP(() => { const cards = gsap.utils.toArray(".feed-card"); gsap.fromTo(cards, { opacity: 0.25, scale: 0.9 }, { opacity: 1, scale: 1, stagger: 0.08, scrollTrigger: { trigger: ".community-feed", start: "top 80%", end: "bottom 65%", scrub: 0.8 } }); }, { scope: root });
-  function remix(work) { setDraft({ prompt: work.prompt, model: work.model, size: work.size, mode: "图生图" }); navigate("/create"); setToast("已复制整套参数，可直接开始创作"); }
+  function remix(work) { setDraft({ prompt: work.prompt, model: normalizeModel(work.model), size: work.size, mode: "图生图" }); navigate("/create"); setToast("已复制整套参数，可直接开始创作"); }
   return <section className="content-page community-page" ref={root}><PageHeading eyebrow="DISCOVER" title={<>灵感</>} description="看见喜欢的，带去继续创作。" action={<button className="primary-action" onClick={() => navigate("/create")}><WandSparkles size={16} />去创作</button>} />
     <section className="community-bento"><article className="bento-hero" onClick={() => setSelected(works[0])}><img src={works[0].image} alt="" /><div><span>本周精选</span><h2>{works[0].title}</h2><p>来自 {works[0].author} 的公开作品</p></div></article><article className="bento-prompt"><span>可以被复刻的画面</span><p>"{works[1].prompt.slice(0, 36)}..."</p><button onClick={() => remix(works[1])}>带走这套参数 <ArrowRight size={15} /></button></article><article className="bento-event"><span>正在进行</span><strong>#手机壁纸</strong><p>1,284 份灵感正在生长</p></article><article className="bento-creator"><img src={works[2].avatar} alt="" /><div><b>{works[2].author}</b><span>把夜色做成海报的人</span></div><button onClick={() => setFollowing((items) => items.includes(works[2].authorId) ? items.filter((id) => id !== works[2].authorId) : [...items, works[2].authorId])}>{following.includes(works[2].authorId) ? "已关注" : "关注"}</button></article></section>
     <div className="community-filter"><div>{categories.map((item) => <button key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div><button className="sort-button">热门 <ChevronDown size={14} /></button></div>
