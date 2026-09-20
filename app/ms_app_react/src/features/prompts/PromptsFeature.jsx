@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Bookmark, Check, Copy, Grid2X2, ImagePlus, List, Palette, Plus, Search, X, Pencil, Trash2, Upload } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { ImagePreview, TemplatePublishModal } from "../legacy/LegacyApp";
+import { ImagePreview, TemplatePublishModal, Modal } from "../legacy/LegacyApp";
 import { useStore } from "../../store/AppStore";
 import { clearCachedState } from "../../store/AppStore";
 import { saveDraft, getDraftsByType, deleteDraft, formatRelativeTime, cleanupOldDrafts } from "../../utils/draftStorage";
@@ -68,6 +68,8 @@ export default function PromptsFeature() {
   const [view, setView] = useState("grid");
   const [selected, setSelected] = useState(null);
   const [editor, setEditor] = useState(null);
+  // 图像解析服务暂未放开：入口点击后展示"开发中"弹窗，而不是打开解析抽屉。
+  const [analysisDisabledOpen, setAnalysisDisabledOpen] = useState(false);
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -428,7 +430,7 @@ export default function PromptsFeature() {
 
   return <section className="prompt-library-v2">
     <section className="prompt-controls-v2"><div className="prompt-search-v2"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索标题、描述或标签" /></div><div className="prompt-control-actions"><select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="排序"><option value="recent">最近更新</option><option value="saved">收藏优先</option><option value="title">按名称</option></select><button className={view === "grid" ? "active" : ""} onClick={() => setView("grid")} aria-label="网格视图"><Grid2X2 size={16} /></button><button className={view === "list" ? "active" : ""} onClick={() => setView("list")} aria-label="列表视图"><List size={17} /></button><button className="new-prompt-v2" onClick={() => openEditor()}><Plus size={16} />新建模板</button></div><div className="prompt-filter-line"><div className="prompt-tabs-v2">{sources.map((item) => <button key={item} className={source === item ? "active" : ""} onClick={() => setSource(item)}>{item}<small>{item === "全部" ? prompts.length : prompts.filter((p) => p.source === item).length}</small></button>)}</div><div className="prompt-categories-v2">{categories.map((item) => <button key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div></div></section>
-    <div className="prompt-content-v2"><main>{loading && <div className="prompt-empty-v2"><strong>正在加载提示词库…</strong></div>}{!loading && loadError && <div className="prompt-empty-v2"><Search size={22} /><strong>{loadError}</strong><span>请确认后端服务已启动。</span></div>}<div className={`prompt-grid-v2 ${view === "list" ? "is-list" : ""}`}>{visible.map((item) => <article className="prompt-card-v2" key={item.id} onClick={() => setSelected(item)}><div className="prompt-cover-v2">{item.cover && <img src={item.cover} alt="" />}<div><span>{item.source} · {item.category}</span><button onClick={(event) => { event.stopPropagation(); toggleFavorite(item); }} className={item.saved ? "saved" : ""} aria-label="收藏"><Bookmark size={16} fill={item.saved ? "currentColor" : "none"} /></button></div></div><div className="prompt-card-body-v2"><div className="prompt-title-v2"><h3>{item.title}</h3><small>{item.prompt.length} 字</small></div><p>{excerpt(item.description || item.prompt)}</p><div className="prompt-tags-v2">{(item.tags || []).slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="prompt-actions-v2"><button onClick={(event) => { event.stopPropagation(); copyPrompt(item); }}><Copy size={14} />复制</button><button onClick={(event) => { event.stopPropagation(); usePrompt(item); }}>套用构建器 <ArrowRight size={14} /></button></div></div></article>)}</div>{!loading && !loadError && !visible.length && <div className="prompt-empty-v2"><Search size={22} /><strong>提示词库还是空的</strong><span>创建第一个模板后，它会显示在这里。</span></div>}</main><aside className="prompt-rail-v2"><div className="prompt-insight-v2 is-clickable" role="button" tabIndex={0} onClick={() => setAnalysisOpen(true)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setAnalysisOpen(true); } }}><Palette size={20} /><span>BUILDING WITH CONTEXT</span><h2>从一张图开始，<em>反向读出它的语言。</em></h2><p>上传参考图，拆解主体、镜头、光线与材质，再保存为可调用的模板。</p><button type="button" onClick={(event) => { event.stopPropagation(); setAnalysisOpen(true); }}>打开图像解析 <ArrowRight size={15} /></button></div>
+    <div className="prompt-content-v2"><main>{loading && <div className="prompt-empty-v2"><strong>正在加载提示词库…</strong></div>}{!loading && loadError && <div className="prompt-empty-v2"><Search size={22} /><strong>{loadError}</strong><span>请确认后端服务已启动。</span></div>}<div className={`prompt-grid-v2 ${view === "list" ? "is-list" : ""}`}>{visible.map((item) => <article className="prompt-card-v2" key={item.id} onClick={() => setSelected(item)}><div className="prompt-cover-v2">{item.cover && <img src={item.cover} alt="" />}<div><span>{item.source} · {item.category}</span><button onClick={(event) => { event.stopPropagation(); toggleFavorite(item); }} className={item.saved ? "saved" : ""} aria-label="收藏"><Bookmark size={16} fill={item.saved ? "currentColor" : "none"} /></button></div></div><div className="prompt-card-body-v2"><div className="prompt-title-v2"><h3>{item.title}</h3><small>{item.prompt.length} 字</small></div><p>{excerpt(item.description || item.prompt)}</p><div className="prompt-tags-v2">{(item.tags || []).slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="prompt-actions-v2"><button onClick={(event) => { event.stopPropagation(); copyPrompt(item); }}><Copy size={14} />复制</button><button onClick={(event) => { event.stopPropagation(); usePrompt(item); }}>套用构建器 <ArrowRight size={14} /></button></div></div></article>)}</div>{!loading && !loadError && !visible.length && <div className="prompt-empty-v2"><Search size={22} /><strong>提示词库还是空的</strong><span>创建第一个模板后，它会显示在这里。</span></div>}</main><aside className="prompt-rail-v2"><div className="prompt-insight-v2 is-clickable" role="button" tabIndex={0} onClick={() => setAnalysisDisabledOpen(true)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setAnalysisDisabledOpen(true); } }}><Palette size={20} /><span>BUILDING WITH CONTEXT</span><h2>从一张图开始，<em>反向读出它的语言。</em></h2><p>上传参考图，拆解主体、镜头、光线与材质，再保存为可调用的模板。</p><button type="button" onClick={(event) => { event.stopPropagation(); setAnalysisDisabledOpen(true); }}>打开图像解析 <ArrowRight size={15} /></button></div>
     
     {/* 草稿列表区域 */}
     <div className="prompt-drafts-v2">
@@ -668,6 +670,22 @@ export default function PromptsFeature() {
           setPublishDraft(null);
         }}
       />
+    )}
+    {/* 图像解析服务暂未放开：点击入口仅提示开发中，不打开解析抽屉。 */}
+    {analysisDisabledOpen && (
+      <Modal title="图像解析" onClose={() => setAnalysisDisabledOpen(false)}>
+        <div className="analysis-disabled-body">
+          <p className="analysis-disabled-message">此服务正在开发中……</p>
+          <p className="analysis-disabled-hint">上线后即可上传参考图，反向拆解提示词。敬请期待。</p>
+          <button
+            type="button"
+            className="analysis-disabled-confirm"
+            onClick={() => setAnalysisDisabledOpen(false)}
+          >
+            我知道了
+          </button>
+        </div>
+      </Modal>
     )}
     {/* 封面大图预览：支持滚轮/按钮缩放与拖动查看。 */}
     {previewImage && <ImagePreview result={{ image: previewImage.src, title: previewImage.title }} filename={`${previewImage.title}.png`} onClose={() => setPreviewImage(null)} />}

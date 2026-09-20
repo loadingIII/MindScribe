@@ -6225,6 +6225,45 @@ body {
   padding-top: 38px;
 }
 
+/* 图像解析"开发中"提示弹窗正文：居中排版，主提示醒目、辅助说明弱化。 */
+.analysis-disabled-body {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 34px 28px 30px;
+  text-align: center;
+}
+
+.analysis-disabled-message {
+  margin: 0;
+  font: 600 22px var(--serif);
+  color: var(--neo-text);
+}
+
+.analysis-disabled-hint {
+  margin: 0;
+  color: var(--neo-text-secondary);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.analysis-disabled-confirm {
+  margin-top: 14px;
+  padding: 11px 34px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--neo-accent-dark);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity .2s;
+}
+
+.analysis-disabled-confirm:hover {
+  opacity: .88;
+}
+
 .analysis-header {
   display: grid;
   gap: 12px;

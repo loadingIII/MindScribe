@@ -361,61 +361,62 @@ public class LlmController {
     public ParseImageResponse parseImage(
             @RequestParam("userPrompt") String userPrompt,
             @RequestParam("image") MultipartFile image) {
-        // 参数校验
-        if (userPrompt == null || userPrompt.trim().isEmpty()) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "解析意图不能为空");
-        }
-        if (userPrompt.length() > 500) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "解析意图不能超过 500 个字符");
-        }
-        if (image == null || image.isEmpty()) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "请上传待解析的图片");
-        }
-
-        try {
-            // 1. 上传图片到 OSS
-            String imageUrl = ossStorageUtil.upload(image, PROMPT_REFERENCE_IMAGES_DIR);
-            log.info("图像解析：已上传图片到 OSS，URL: {}", imageUrl);
-
-            // 2. 构建提示词并调用 LLM
-            String systemPrompt = buildImageParseSystemPrompt(userPrompt);
-            UserMessage userMessage = buildImageParseUserMessage(userPrompt, imageUrl);
-
-            // 3. 流式接收响应并拼接
-            String response = chatClient.prompt(new Prompt(List.of(
-                            new SystemMessage(systemPrompt),
-                            userMessage)))
-                    .stream()
-                    .content()
-                    .collect(Collectors.joining())
-                    .block();
-
-            // 4. 解析响应 JSON 并附加 OSS 图片地址
-            ParseImageResponse parseResponse = parseImageParseResponse(response);
-            parseResponse.setImageUrl(imageUrl);
-            return parseResponse;
-
-        } catch (ResponseStatusException exception) {
-            throw exception;
-        } catch (IOException exception) {
-            log.error("上传图片到 OSS 失败", exception);
-            throw new ResponseStatusException(
-                    HttpStatus.INTERNAL_SERVER_ERROR,
-                    "图片上传失败，请稍后重试",
-                    exception);
-        } catch (Exception exception) {
-            log.error("调用图像解析模型失败", exception);
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_GATEWAY,
-                    "图像解析服务暂时不可用",
-                    exception);
-        }
+        throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "图像解析服务暂时不可用");
+//        // 参数校验
+//        if (userPrompt == null || userPrompt.trim().isEmpty()) {
+//            throw new ResponseStatusException(
+//                    HttpStatus.BAD_REQUEST,
+//                    "解析意图不能为空");
+//        }
+//        if (userPrompt.length() > 500) {
+//            throw new ResponseStatusException(
+//                    HttpStatus.BAD_REQUEST,
+//                    "解析意图不能超过 500 个字符");
+//        }
+//        if (image == null || image.isEmpty()) {
+//            throw new ResponseStatusException(
+//                    HttpStatus.BAD_REQUEST,
+//                    "请上传待解析的图片");
+//        }
+//
+//        try {
+//            // 1. 上传图片到 OSS
+//            String imageUrl = ossStorageUtil.upload(image, PROMPT_REFERENCE_IMAGES_DIR);
+//            log.info("图像解析：已上传图片到 OSS，URL: {}", imageUrl);
+//
+//            // 2. 构建提示词并调用 LLM
+//            String systemPrompt = buildImageParseSystemPrompt(userPrompt);
+//            UserMessage userMessage = buildImageParseUserMessage(userPrompt, imageUrl);
+//
+//            // 3. 流式接收响应并拼接
+//            String response = chatClient.prompt(new Prompt(List.of(
+//                            new SystemMessage(systemPrompt),
+//                            userMessage)))
+//                    .stream()
+//                    .content()
+//                    .collect(Collectors.joining())
+//                    .block();
+//
+//            // 4. 解析响应 JSON 并附加 OSS 图片地址
+//            ParseImageResponse parseResponse = parseImageParseResponse(response);
+//            parseResponse.setImageUrl(imageUrl);
+//            return parseResponse;
+//
+//        } catch (ResponseStatusException exception) {
+//            throw exception;
+//        } catch (IOException exception) {
+//            log.error("上传图片到 OSS 失败", exception);
+//            throw new ResponseStatusException(
+//                    HttpStatus.INTERNAL_SERVER_ERROR,
+//                    "图片上传失败，请稍后重试",
+//                    exception);
+//        } catch (Exception exception) {
+//            log.error("调用图像解析模型失败", exception);
+//            throw new ResponseStatusException(
+//                    HttpStatus.BAD_GATEWAY,
+//                    "图像解析服务暂时不可用",
+//                    exception);
+//        }
     }
 
     /** 读取并填充图像解析提示词模板。 */

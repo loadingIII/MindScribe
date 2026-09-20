@@ -1266,8 +1266,8 @@ function PageHeading({ title, description, action }) {
   return <header className="page-heading"><div><h1>{title}</h1><p>{description}</p></div>{action && <div className="heading-side">{action}</div>}</header>;
 }
 
-function Modal({ title, children, onClose, headerExtra }) {
-  // 以通用遮罩承载详情、编辑和解析界面；headerExtra 渲染在标题右侧，用于放置轻量操作。
+/** 以通用遮罩承载详情、编辑和解析界面；headerExtra 渲染在标题右侧，用于放置轻量操作。 */
+export function Modal({ title, children, onClose, headerExtra }) {
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal" onMouseDown={(event) => event.stopPropagation()}><header><div className="modal-title-group"><h2>{title}</h2>{headerExtra}</div><button onClick={onClose}><X size={19} /></button></header>{children}</section></div>;
 }
 
