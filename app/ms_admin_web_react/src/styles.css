@@ -64,6 +64,25 @@ td.pos { color: #1f7a3d; font-weight: 600; }
 .modal label.check input { width: auto; }
 .modal .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
 .modal footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.modal .form-error { margin-top: 14px; }
+
+/* 系数编辑块：逐行「取值 × 系数」替代手写 JSON。 */
+.factor-block { margin-top: 16px; border: 1px solid #e6e9ef; border-radius: 10px; padding: 12px 14px 14px; }
+.factor-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; font-weight: 600; color: #3c4a5f; }
+.factor-hint { margin-left: 8px; font-weight: 400; font-style: normal; font-size: 12px; color: #98a6b8; }
+.factor-add { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; font-size: 12px; }
+.factor-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.factor-row select { flex: 1.4; }
+.factor-row input { flex: 1; min-width: 0; }
+.factor-row input[type="number"] { flex: 0.6; }
+.factor-times { color: #98a6b8; }
+.factor-remove { display: inline-flex; padding: 6px; border: 1px solid transparent; background: transparent; color: #98a6b8; border-radius: 8px; }
+.factor-remove:hover { color: #c0392b; background: #fbeae7; }
+.factor-empty { margin: 6px 0 0; font-size: 12.5px; color: #98a6b8; }
+
+/* 列表页系数徽章：JSON 摘要转成可读短标签。 */
+.factor-chips { display: flex; flex-wrap: wrap; gap: 4px; max-width: 260px; }
+.factor-chip { display: inline-block; background: #f1f4f8; border-radius: 6px; padding: 1px 7px; font-size: 12px; color: #4a5568; white-space: nowrap; }
 
 /* 登录页 */
 .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(160deg, #101828, #1c2a44); }
