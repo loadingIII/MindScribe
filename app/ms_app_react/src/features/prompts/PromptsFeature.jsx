@@ -58,7 +58,7 @@ function normalizeTemplate(item) {
 
 /** 提示词库只使用服务端数据，避免页面加载时闪现本地示例。 */
 export default function PromptsFeature() {
-  const { setToast } = useStore();
+  const { setDraft, setToast } = useStore();
   const navigate = useNavigate();
   const [prompts, setPrompts] = useState([]);
   const [source, setSource] = useState("全部");
@@ -182,6 +182,7 @@ export default function PromptsFeature() {
   }
 
   async function usePrompt(item) {
+    // 统计使用次数；仅用于计数，成败不影响套用。
     await fetch(`/prompt_templates/${item.id}/use`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userPrompt: item.prompt }) }).catch(() => {});
     clearCachedState([
       "create:files",
@@ -193,8 +194,12 @@ export default function PromptsFeature() {
       "create:taskName",
       "create:tagsCollapsed"
     ]);
+    // 套用必须用模板正文原文（userPromptTemplate）。
+    // item.prompt 是展示层剥离"标签: 值"行后的残文，正文含冒号的行会被误剥离，
+    // 用它套用会导致创作页拿到近乎空白的内容。
+    const fullPrompt = String(item.userPromptTemplate || item.prompt || "");
     setDraft({
-      prompt: item.prompt,
+      prompt: fullPrompt,
       tags: normalizeTags(item.tags).map((tag) => {
         const [key, ...rest] = tag.split(":");
         return { key: key.trim(), value: rest.join(":").trim() };
