@@ -166,6 +166,19 @@ services:
     depends_on:
       - backend
 
+  # ---------- 管理端前端（React + Nginx）：独立的管理后台，反代后端 /auth /admin ----------
+  admin:
+    build:
+      context: ../app/ms_admin_web_react
+    image: mindscribe/admin:latest
+    container_name: mindscribe-admin
+    restart: unless-stopped
+    ports:
+      - "${ADMIN_PORT:-8082}:80"
+    mem_limit: 64m
+    depends_on:
+      - backend
+
 volumes:
   mysql-data:
   redis-data:

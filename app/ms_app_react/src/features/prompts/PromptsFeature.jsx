@@ -104,7 +104,9 @@ export default function PromptsFeature() {
 
   useEffect(() => {
     let active = true;
-    fetch("/prompt_templates?page=0&size=50", { credentials: "include" })
+    // no-store：绕过浏览器 HTTP 缓存（含历史上被缓存下来的 301 重定向），
+    // 否则旧缓存的 http:// 重定向会在本地拦截请求，导致提示词列表加载不出来。
+    fetch("/prompt_templates?page=0&size=50", { credentials: "include", cache: "no-store" })
       .then((response) => { if (!response.ok) throw new Error("提示词库加载失败"); return response.json(); })
       .then((items) => { if (active && Array.isArray(items)) { setPrompts(items.map(normalizeTemplate)); setLoadError(""); } })
       .catch(() => { if (active) { setPrompts([]); setLoadError("提示词库暂时无法连接，请稍后重试"); } })
