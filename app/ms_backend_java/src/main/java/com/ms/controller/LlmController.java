@@ -235,24 +235,46 @@ public class LlmController {
         return builder.build();
     }
 
-    /** 解析 [序号:图片名] 标记，只上传被用户实际关联的图片。 */
+    /**
+     * 解析 [序号:图片名] 标记，组装实际关联的参考图。
+     * 参考图分两类：本地 File（referenceImages，需上传 OSS）与草稿复用的 URL
+     * （referenceUrls，直接复用地址）；序号均与各自数组一一对应，
+     * 用户提示词中的标记按序号在此映射中查找，File 与 URL 混排时统一生效。
+     */
     private List<ReferenceImage> uploadReferencedImages(OptimizePromptRequest request) {
         List<MultipartFile> files = request.getReferenceImages() == null
                 ? List.of()
                 : request.getReferenceImages();
-        List<Integer> indexes = request.getReferenceIndexes() == null
+        List<Integer> fileIndexes = request.getReferenceIndexes() == null
                 ? List.of()
                 : request.getReferenceIndexes();
-        if (files.size() != indexes.size()) {
+        List<String> urls = request.getReferenceUrls() == null
+                ? List.of()
+                : request.getReferenceUrls();
+        List<Integer> urlIndexes = request.getReferenceUrlIndexes() == null
+                ? List.of()
+                : request.getReferenceUrlIndexes();
+        if (files.size() != fileIndexes.size() || urls.size() != urlIndexes.size()) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "参考图文件和序号数量不一致");
         }
         java.util.Map<Integer, MultipartFile> filesByIndex = new java.util.HashMap<>();
         for (int fileIndex = 0; fileIndex < files.size(); fileIndex++) {
-            Integer referenceIndex = indexes.get(fileIndex);
+            Integer referenceIndex = fileIndexes.get(fileIndex);
             if (referenceIndex == null || referenceIndex < 1
                     || filesByIndex.put(referenceIndex, files.get(fileIndex)) != null) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "参考图序号无效或重复");
+            }
+        }
+        java.util.Map<Integer, String> urlsByIndex = new java.util.HashMap<>();
+        for (int urlIndex = 0; urlIndex < urls.size(); urlIndex++) {
+            Integer referenceIndex = urlIndexes.get(urlIndex);
+            String url = urls.get(urlIndex);
+            if (referenceIndex == null || referenceIndex < 1 || url == null || url.isBlank()
+                    || urlsByIndex.put(referenceIndex, url) != null) {
                 throw new ResponseStatusException(
                         HttpStatus.BAD_REQUEST,
                         "参考图序号无效或重复");
@@ -268,10 +290,21 @@ public class LlmController {
                 continue;
             }
             MultipartFile file = filesByIndex.get(index);
-            if (index < 1 || file == null) {
+            String reusedUrl = urlsByIndex.get(index);
+            if (index < 1 || (file == null && reusedUrl == null)) {
                 throw new ResponseStatusException(
                         HttpStatus.BAD_REQUEST,
                         "关联参考图不存在：" + matcher.group());
+            }
+            // 草稿复用的 URL 直接作为媒体地址；本地 File 校验类型后上传 OSS。
+            if (file == null) {
+                references.add(new ReferenceImage(
+                        index,
+                        matcher.group(),
+                        filename,
+                        reusedUrl,
+                        "image/*"));
+                continue;
             }
             validateImage(file, matcher.group());
             try {
@@ -361,61 +394,62 @@ public class LlmController {
     public ParseImageResponse parseImage(
             @RequestParam("userPrompt") String userPrompt,
             @RequestParam("image") MultipartFile image) {
-        // 参数校验
-        if (userPrompt == null || userPrompt.trim().isEmpty()) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "解析意图不能为空");
-        }
-        if (userPrompt.length() > 500) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "解析意图不能超过 500 个字符");
-        }
-        if (image == null || image.isEmpty()) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "请上传待解析的图片");
-        }
-
-        try {
-            // 1. 上传图片到 OSS
-            String imageUrl = ossStorageUtil.upload(image, PROMPT_REFERENCE_IMAGES_DIR);
-            log.info("图像解析：已上传图片到 OSS，URL: {}", imageUrl);
-
-            // 2. 构建提示词并调用 LLM
-            String systemPrompt = buildImageParseSystemPrompt(userPrompt);
-            UserMessage userMessage = buildImageParseUserMessage(userPrompt, imageUrl);
-
-            // 3. 流式接收响应并拼接
-            String response = chatClient.prompt(new Prompt(List.of(
-                            new SystemMessage(systemPrompt),
-                            userMessage)))
-                    .stream()
-                    .content()
-                    .collect(Collectors.joining())
-                    .block();
-
-            // 4. 解析响应 JSON 并附加 OSS 图片地址
-            ParseImageResponse parseResponse = parseImageParseResponse(response);
-            parseResponse.setImageUrl(imageUrl);
-            return parseResponse;
-
-        } catch (ResponseStatusException exception) {
-            throw exception;
-        } catch (IOException exception) {
-            log.error("上传图片到 OSS 失败", exception);
-            throw new ResponseStatusException(
-                    HttpStatus.INTERNAL_SERVER_ERROR,
-                    "图片上传失败，请稍后重试",
-                    exception);
-        } catch (Exception exception) {
-            log.error("调用图像解析模型失败", exception);
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_GATEWAY,
-                    "图像解析服务暂时不可用",
-                    exception);
-        }
+        throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "图像解析服务暂时不可用");
+//        // 参数校验
+//        if (userPrompt == null || userPrompt.trim().isEmpty()) {
+//            throw new ResponseStatusException(
+//                    HttpStatus.BAD_REQUEST,
+//                    "解析意图不能为空");
+//        }
+//        if (userPrompt.length() > 500) {
+//            throw new ResponseStatusException(
+//                    HttpStatus.BAD_REQUEST,
+//                    "解析意图不能超过 500 个字符");
+//        }
+//        if (image == null || image.isEmpty()) {
+//            throw new ResponseStatusException(
+//                    HttpStatus.BAD_REQUEST,
+//                    "请上传待解析的图片");
+//        }
+//
+//        try {
+//            // 1. 上传图片到 OSS
+//            String imageUrl = ossStorageUtil.upload(image, PROMPT_REFERENCE_IMAGES_DIR);
+//            log.info("图像解析：已上传图片到 OSS，URL: {}", imageUrl);
+//
+//            // 2. 构建提示词并调用 LLM
+//            String systemPrompt = buildImageParseSystemPrompt(userPrompt);
+//            UserMessage userMessage = buildImageParseUserMessage(userPrompt, imageUrl);
+//
+//            // 3. 流式接收响应并拼接
+//            String response = chatClient.prompt(new Prompt(List.of(
+//                            new SystemMessage(systemPrompt),
+//                            userMessage)))
+//                    .stream()
+//                    .content()
+//                    .collect(Collectors.joining())
+//                    .block();
+//
+//            // 4. 解析响应 JSON 并附加 OSS 图片地址
+//            ParseImageResponse parseResponse = parseImageParseResponse(response);
+//            parseResponse.setImageUrl(imageUrl);
+//            return parseResponse;
+//
+//        } catch (ResponseStatusException exception) {
+//            throw exception;
+//        } catch (IOException exception) {
+//            log.error("上传图片到 OSS 失败", exception);
+//            throw new ResponseStatusException(
+//                    HttpStatus.INTERNAL_SERVER_ERROR,
+//                    "图片上传失败，请稍后重试",
+//                    exception);
+//        } catch (Exception exception) {
+//            log.error("调用图像解析模型失败", exception);
+//            throw new ResponseStatusException(
+//                    HttpStatus.BAD_GATEWAY,
+//                    "图像解析服务暂时不可用",
+//                    exception);
+//        }
     }
 
     /** 读取并填充图像解析提示词模板。 */

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ms.mapper.PricingMapper">
+
+    <!-- 规则整条更新：只覆盖管理端可编辑字段；updated_at 由数据库自动维护。 -->
+    <update id="updateRule" parameterType="com.ms.pojo.entity.PricingRuleEntity">
+        UPDATE credit_pricing_rules
+        <set>
+            <if test="action != null">action = #{action},</if>
+            <if test="model != null">model = #{model},</if>
+            <if test="baseCost != null">base_cost = #{baseCost},</if>
+            <if test="img2imgCost != null">img2img_cost = #{img2imgCost},</if>
+            <if test="sizeMultipliers != null">size_multipliers = #{sizeMultipliers},</if>
+            <if test="qualityMultipliers != null">quality_multipliers = #{qualityMultipliers},</if>
+            <if test="isActive != null">is_active = #{isActive},</if>
+            <if test="remark != null">remark = #{remark},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+</mapper>

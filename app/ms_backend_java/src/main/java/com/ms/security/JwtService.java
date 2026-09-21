@@ -16,12 +16,14 @@ public class JwtService {
     private final String issuer;
     private final long expirationSeconds;
     private final String cookieName;
+    private final String adminCookieName;
 
     public JwtService(
             @Value("${jwt.secret}") String secret,
             @Value("${jwt.issuer}") String issuer,
             @Value("${jwt.expiration-seconds}") long expirationSeconds,
-            @Value("${jwt.cookie-name}") String cookieName) {
+            @Value("${jwt.cookie-name}") String cookieName,
+            @Value("${jwt.admin-cookie-name:mindscribe-admin-token}") String adminCookieName) {
         // HS256 至少需要 256 bit 密钥，避免启动时出现难以定位的异常。
         if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32) {
             throw new IllegalArgumentException("JWT_SECRET 至少需要 32 个字节，请在 .env 或系统环境变量中配置高强度密钥");
@@ -30,10 +32,14 @@ public class JwtService {
         this.issuer = issuer;
         this.expirationSeconds = expirationSeconds;
         this.cookieName = cookieName;
+        this.adminCookieName = adminCookieName;
     }
 
     /** 返回浏览器保存 JWT 的 Cookie 名称。 */
     public String cookieName() { return cookieName; }
+
+    /** 返回管理端专用 JWT Cookie 的名称（与客户端登录态物理隔离）。 */
+    public String adminCookieName() { return adminCookieName; }
 
     /** 返回 JWT 与认证 Cookie 共用的有效期（秒）。 */
     public long expirationSeconds() { return expirationSeconds; }

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ms.mapper.CreditMapper">
+
+    <!-- 流水分页查询：条件全部可选，命中索引 idx_tx_user_created / idx_tx_type_created。 -->
+    <select id="findTransactions" resultType="com.ms.pojo.entity.CreditTransactionEntity">
+        SELECT id, user_id AS userId, attempt_id AS attemptId, type, amount,
+               balance_after AS balanceAfter, reason, operator_id AS operatorId, created_at AS createdAt
+        FROM credit_transactions
+        <where>
+            <if test="userId != null and userId != ''">user_id = #{userId}</if>
+            <if test="type != null and type != ''">AND type = #{type}</if>
+            <if test="startTime != null and startTime != ''">AND created_at &gt;= #{startTime}</if>
+            <if test="endTime != null and endTime != ''">AND created_at &lt;= #{endTime}</if>
+        </where>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- 流水总数：条件与 findTransactions 保持一致。 -->
+    <select id="countTransactions" resultType="long">
+        SELECT COUNT(*)
+        FROM credit_transactions
+        <where>
+            <if test="userId != null and userId != ''">user_id = #{userId}</if>
+            <if test="type != null and type != ''">AND type = #{type}</if>
+            <if test="startTime != null and startTime != ''">AND created_at &gt;= #{startTime}</if>
+            <if test="endTime != null and endTime != ''">AND created_at &lt;= #{endTime}</if>
+        </where>
+    </select>
+</mapper>

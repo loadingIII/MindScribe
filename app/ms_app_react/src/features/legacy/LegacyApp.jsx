@@ -227,7 +227,7 @@ function downloadResultImage(url, filename) {
   triggerDownload(url, filename);
 }
 import { image } from "../../assets/mockData";
-import { loadCachedReferences, saveCachedReferences, useCachedState, useStore } from "../../store/AppStore";
+import { loadCachedReferences, saveCachedReferences, useCachedState, useStore, normalizeModel } from "../../store/AppStore";
 import { buildGenImgsPrompt, GEN_IMGS_SYSTEM_PROMPT } from "../../utils/prompts/gen_imgs_prompts";
 import SelectField from "../../components/SelectField";
 
@@ -346,7 +346,7 @@ export function LegacyApp() {
 
 export function CreatePage() {
   // 渲染多模式生图工作台，并模拟异步生成任务。
-  const { draft, setDraft, credits, setCredits, addLibraryWork, setToast } = useStore();
+  const { draft, setDraft, credits, setCredits, addLibraryWork, setToast, refreshBalance } = useStore();
   const navigate = useNavigate();
   const mode = "创作";
   // 提示词以全局草稿为唯一数据源：输入实时写回 draft，跳转提示词构建页时内容保持一致。
@@ -391,14 +391,23 @@ export function CreatePage() {
   const [editingTaskName, setEditingTaskName] = useState(false);
   const [threadEdit, setThreadEdit] = useState(null);
   const [templatePublishOpen, setTemplatePublishOpen] = useState(false);
+  // 本次生成的积分消耗：estimate 为提交前预估，lastCost 为提交后实际消耗（由后端原子扣减）。
+  const [estimate, setEstimate] = useState(null);
+  const [lastCost, setLastCost] = useState(null);
   // 提示词构建页带回的结构化标签，用于画布顶部的"标签栏"展示。
   const draftTags = Array.isArray(draft.tags) ? draft.tags : [];
   const tagChips = buildTagChips(draftTags);
+  // 画布状态栏的积分文案：生成中/完成后展示本次实际消耗，其余展示后端实时预估。
+  const costLabel = (status === "queued" || status === "working" || status === "done") && lastCost != null
+    ? `本次消耗 ${lastCost} 积分`
+    : estimate != null ? `预计消耗 ${estimate} 积分` : "积分预估中…";
   const richPromptRef = useRef(null);
   const promptRef = useRef(null);
   const canvasRef = useRef(null);
   // 任务失败时只提示一次，轮询不会重复弹出同一条错误。
   const failedAttemptRef = useRef("");
+  // 追踪输入法组合状态，避免在拼音输入过程中重建 DOM 导致光标跳动。
+  const composingRef = useRef(false);
 
   async function reloadTaskThreads() {
       try {
@@ -455,7 +464,7 @@ export function CreatePage() {
                     ...current,
                     prompt: shouldRestorePrompt ? (targetAttempt.prompt || "") : current.prompt,
                     tags: shouldRestoreTags ? (targetAttempt.tags || []) : current.tags,
-                    model: targetAttempt.modelName || current.model,
+                    model: normalizeModel(targetAttempt.modelName || current.model),
                     size: targetAttempt.size || current.size,
                     quality: targetAttempt.quality || current.quality,
                     references: mappedThread.references || []
@@ -581,8 +590,28 @@ export function CreatePage() {
   }, [files, referencesRestored]);
   useEffect(() => {
     const editor = richPromptRef.current;
-    if (editor && editorPromptText(editor) !== prompt) renderPromptContent(editor, prompt, files);
+    if (!editor) return;
+    const currentText = editorPromptText(editor);
+    const needsRender = currentText !== prompt || (files.length > 0 && !editor.querySelector('.mention-chip'));
+    // 输入法组合期间跳过 DOM 重建，避免打断拼音输入。
+    if (!composingRef.current && needsRender) {
+      renderPromptContent(editor, prompt, files);
+    }
   }, [prompt, files]);
+
+  useEffect(() => {
+    // 参数变化时向后端实时预估本次消耗，展示在画布状态栏；计价规则与后端扣减保持同源。
+    // 注意：size/quality 取值已与生图请求一致（normalize 后的值），预估即实扣口径。
+    const size = normalizeSize(draft.size);
+    const quality = normalizeQuality(draft.quality);
+    const mode = files.length ? "image-to-image" : "text-to-image";
+    let cancelled = false;
+    fetch(`/credits/estimate?model=${encodeURIComponent(draft.model || "gpt-image-2")}&size=${encodeURIComponent(size)}&quality=${encodeURIComponent(quality)}&mode=${mode}&n=${count}&referenceCount=${files.length}`, { credentials: "include" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => { if (!cancelled && data && typeof data.cost === "number") setEstimate(data.cost); })
+      .catch(() => { /* 预估失败不影响生成，仅不展示数字。 */ });
+    return () => { cancelled = true; };
+  }, [draft.model, draft.size, draft.quality, files.length, count]);
 
   useEffect(() => {
     // 仅轮询当前选中的 Attempt，避免新任务回显旧 Attempt 的结果。
@@ -619,6 +648,8 @@ export function CreatePage() {
         if (currentStatus === "failed" && currentAttempt.error && failedAttemptRef.current !== attemptId) {
           failedAttemptRef.current = attemptId;
           setToast(`生成失败：${currentAttempt.error}`);
+          // 后端在首次观察到失败终态时会返还预扣积分，这里同步余额展示。
+          refreshBalance();
         }
         setTaskThreads((items) => {
           let changed = false;
@@ -757,8 +788,9 @@ export function CreatePage() {
       await retryThread(threadId);
       return;
     }
-    const spend = count * (mode === "批量出图" ? 24 : 12);
-    if (credits < spend) { setToast("算力不足，请前往个人中心查看权益"); return; }
+    const spend = estimate ?? count * 12;
+    // 余额仅作前端预检提示；实际扣减与校验以后端原子扣减为准。
+    if (credits < spend) { setToast("积分不足，请前往个人中心查看权益"); return; }
     const generatedTitle = defaultThreadTitle(taskThreads);
     setTaskName(generatedTitle);
     const form = new FormData();
@@ -781,7 +813,6 @@ export function CreatePage() {
     setWorkspaceView("results");
     setWorkspaceOpen(true);
     setDraft({ ...draft, prompt, mode, additionalSystemPrompt });
-    setCredits(credits - spend);
     try {
       const response = await fetch("/gen_imgs/threads", { method: "POST", body: form });
       if (!response.ok) {
@@ -797,7 +828,15 @@ export function CreatePage() {
       setWorkspaceThreadId(newThread.id);
       setAttemptId(newAttempt?.id || "");
       setTaskThreads((items) => [newThread, ...items]);
-    } catch (error) { setStatus("failed"); setToast(error.message); }
+      // 提交成功说明后端已按预估口径预扣积分，展示本次实际消耗并同步余额。
+      setLastCost(spend);
+      refreshBalance();
+    } catch (error) {
+      setStatus("failed");
+      setToast(error.message);
+      // 失败（含余额不足被拒）时同步一次余额，纠正本地预检可能产生的展示偏差。
+      refreshBalance();
+    }
   }
 
   async function retryThread(id) {
@@ -847,7 +886,10 @@ export function CreatePage() {
         setAttemptId(latestAttempt.id);
         setResults([]);
       }
-    } catch (error) { setStatus("failed"); setToast(error.message); }
+      // 重试同样按预估口径预扣积分，展示本次消耗并同步余额。
+      setLastCost(estimate ?? count * 12);
+      refreshBalance();
+    } catch (error) { setStatus("failed"); setToast(error.message); refreshBalance(); }
   }
 
   function startNewCreation() {
@@ -890,18 +932,36 @@ export function CreatePage() {
     editor.focus();
     const selection = window.getSelection();
     if (!selection?.rangeCount) return;
-    const range = selection.getRangeAt(0);
-    const node = range.startContainer;
-    const text = node.nodeType === Node.TEXT_NODE ? node.textContent : "";
-    const before = text.slice(0, range.startOffset);
-    const atIndex = before.lastIndexOf("@");
-    if (atIndex >= 0 && node.nodeType === Node.TEXT_NODE) {
-      range.setStart(node, atIndex);
-      range.deleteContents();
+    let range = selection.getRangeAt(0);
+    // 遍历所有文本节点，找到最后一个独立的 @ 并删除。
+    let lastAtNode = null;
+    let lastAtOffset = -1;
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+    let textNode;
+    while ((textNode = walker.nextNode())) {
+      const idx = textNode.textContent.lastIndexOf("@");
+      if (idx >= 0) {
+        lastAtNode = textNode;
+        lastAtOffset = idx;
+      }
+    }
+    if (lastAtNode && lastAtOffset >= 0) {
+      const atRange = document.createRange();
+      atRange.setStart(lastAtNode, lastAtOffset);
+      atRange.setEnd(lastAtNode, lastAtOffset + 1);
+      atRange.deleteContents();
+      range = document.createRange();
+      range.setStart(lastAtNode, lastAtOffset);
+      range.collapse(true);
     }
     const chip = createMentionChip(file);
     range.insertNode(chip);
-    range.setStartAfter(chip); range.collapse(true);
+    // 在 chip 后插入零宽空格，确保光标有文本节点停留，避免输入法闪烁。
+    const spacer = document.createTextNode("\u200B");
+    range.setStartAfter(chip);
+    range.insertNode(spacer);
+    range.setStart(spacer, 1);
+    range.collapse(true);
     selection.removeAllRanges(); selection.addRange(range);
     setMentionOpen(false);
     syncRichPrompt();
@@ -947,7 +1007,7 @@ export function CreatePage() {
       ...current,
       prompt: attempt.prompt || "",
       tags: attempt.tags || [],
-      model: attempt.modelName || current.model,
+      model: normalizeModel(attempt.modelName || current.model),
       size: attempt.size || current.size,
       quality: attempt.quality || current.quality,
       references: restoredReferences
@@ -974,10 +1034,10 @@ export function CreatePage() {
         <div className="control-scroll-area">
         <div className="control-title"><span>参考图</span><small>可选 · 最多 4 张</small></div>
         <div className={`reference-strip ${files.length ? "has-files" : "empty"}`} onDragOver={(event) => !referencesLocked && event.preventDefault()} onDrop={(event) => !referencesLocked && dropReferences(event)}>{files.map((item) => <div className="reference-item" key={item.id}><img src={item.url} alt={item.file.name} /><div className="reference-caption"><span>{item.file.name}</span>{!referencesLocked && <button onClick={() => removeReference(item.id)} title="移除参考图"><X size={13} /></button>}</div></div>)}{files.length < 4 && !referencesLocked && <label className="reference-add"><ImagePlus size={24} /><div><b>{files.length ? "继续添加" : "添加参考图"}</b><small>{files.length ? `${files.length}/4 张` : "点击或拖拽图片到这里"}</small></div><input type="file" accept="image/*" multiple onChange={(event) => addReferences(event.target.files)} /></label>}</div>
-        <div className="prompt-editor"><div className="prompt-editor-head"><span>你的构想</span><div><small className="prompt-hint">输入 @ 关联参考图</small><button className="prompt-builder-trigger" type="button" onClick={() => navigate("/create/prompt-builder")} title="构建提示词"><Sparkles size={14} /><span>构建提示词</span></button></div></div><div ref={richPromptRef} className="rich-prompt" contentEditable suppressContentEditableWarning onInput={syncRichPrompt} onKeyDown={handleRichPromptKeyDown} data-placeholder="写下你的创作构想…" />{mentionOpen && mentionCandidates.length > 0 && <div className="mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择，Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>{referenceLabel(item.file.name)}</span><kbd>{index + 1}</kbd></button>)}</div>}<small className="prompt-count">{prompt.length}/5000</small></div>
-        <div className="control-fields"><SelectField label="模型" value={draft.model || "gpt-image-2"} options={["gpt-image-2", "dall-e-3"]} onChange={(value) => setDraft({ ...draft, model: value })} /><SelectField label="尺寸" value={normalizeSize(draft.size)} options={GPT_IMAGE_SIZE_OPTIONS} onChange={(value) => setDraft({ ...draft, size: value })} /><SelectField label="质量" value={normalizeQuality(draft.quality)} options={[{ value: "auto", label: "自动" }, { value: "low", label: "低" }, { value: "medium", label: "中" }, { value: "high", label: "高" }]} onChange={(value) => setDraft({ ...draft, quality: value })} /><SelectField label="数量" value="1" options={["1"]} disabled /></div>
+        <div className="prompt-editor"><div className="prompt-editor-head"><span>你的构想</span><div><small className="prompt-hint">输入 @ 关联参考图</small><button className="prompt-builder-trigger" type="button" onClick={() => navigate("/create/prompt-builder?from=create")} title="构建提示词"><Sparkles size={14} /><span>构建提示词</span></button></div></div><div ref={richPromptRef} className="rich-prompt" contentEditable suppressContentEditableWarning onInput={syncRichPrompt} onKeyDown={handleRichPromptKeyDown} onCompositionStart={() => { composingRef.current = true; }} onCompositionEnd={() => { setTimeout(() => { composingRef.current = false; }, 100); }} data-placeholder="写下你的创作构想…" />{mentionOpen && mentionCandidates.length > 0 && <div className="mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择,Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>{referenceLabel(item.file.name)}</span><kbd>{index + 1}</kbd></button>)}</div>}<small className="prompt-count">{prompt.length}/5000</small></div>
+        <div className="control-fields"><SelectField label="模型" value={draft.model || "gpt-image-2"} options={["gpt-image-2"]} onChange={(value) => setDraft({ ...draft, model: value })} /><SelectField label="尺寸" value={normalizeSize(draft.size)} options={GPT_IMAGE_SIZE_OPTIONS} onChange={(value) => setDraft({ ...draft, size: value })} /><SelectField label="质量" value={normalizeQuality(draft.quality)} options={[{ value: "auto", label: "自动" }, { value: "low", label: "低" }, { value: "medium", label: "中" }, { value: "high", label: "高" }]} onChange={(value) => setDraft({ ...draft, quality: value })} /><SelectField label="数量" value="1" options={["1"]} disabled /></div>
         </div>
-        <div className="control-footer"><button className="plain-button" type="button" onClick={() => setAdvancedOpen(true)}><Settings2 size={15} />高级参数</button><button className="create-button" onClick={startGeneration} disabled={!["idle", "failed", "done"].includes(status) || !prompt.trim()}><WandSparkles size={17} />{status === "idle" || status === "failed" || status === "done" ? (status === "failed" ? "重试" : status === "done" ? "重新生成" : "开始创作") : status === "queued" ? "待生成" : "生成中"}</button></div>
+        <div className="control-footer"><button className="plain-button is-pending" type="button" title="该功能暂未开放" onClick={() => setToast("高级参数待开发…")}><Settings2 size={15} />高级参数</button><button className="create-button" onClick={startGeneration} disabled={!["idle", "failed", "done"].includes(status) || !prompt.trim()}><WandSparkles size={17} />{status === "idle" || status === "failed" || status === "done" ? (status === "failed" ? "重试" : status === "done" ? "重新生成" : "开始创作") : status === "queued" ? "待生成" : "生成中"}</button></div>
       </section>
       {/* 标签栏：独立于结果显示模块（深色画布）的浅色卡片，固定显示在画布上方。 */}
       <div className="canvas-column">
@@ -1005,7 +1065,7 @@ export function CreatePage() {
         {status === "idle" && !results.length && <div className="canvas-empty"><div className="empty-star"><Sparkles size={23} /></div><h2>在这里等待<br />一个新的视野。</h2><p>填写构想，或者添加一张参考图开始。</p></div>}
         {(status === "queued" || status === "working") && <div className="canvas-empty"><div className="orbit-loader"><span /></div><h2>{status === "queued" ? "灵感正在排队" : "画面正在显影"}</h2><p>{status === "queued" ? "任务将很快开始。" : "模型正在理解光线、构图与细节。"}</p></div>}
         {(status === "done" || results.length > 0) && <div className={`result-gallery count-${results.length}`}>{results.map((result) => <article className="result-image" key={result.id}><button className="result-image-preview" type="button" onClick={() => setPreviewResult(result)} aria-label={`预览${result.title}`}><img src={result.image} alt={result.title} /></button><div><span>{result.title}</span><button type="button" onClick={() => setToast("已收藏到个人画廊")} title="收藏"><Bookmark size={15} /></button><button type="button" onClick={() => downloadResultImage(result.image, `${safeDownloadName(taskName)}-${result.attemptNumber || 1}.png`)} title="下载"><Download size={15} /></button></div></article>)}</div>}
-        <div className="canvas-status"><span>状态：{status === "queued" ? "待生成" : status === "working" ? "生成中" : status === "done" ? "已生成" : status === "failed" ? "失败" : "待生成"}</span><span>消耗 {count * 12} 算力 · {files.length ? `${files.length} 张参考图已就绪` : "无需参考图"}</span></div>
+        <div className="canvas-status"><span>状态：{status === "queued" ? "待生成" : status === "working" ? "生成中" : status === "done" ? "已生成" : status === "failed" ? "失败" : "待生成"}</span><span>{costLabel} · {files.length ? `${files.length} 张参考图已就绪` : "无需参考图"}</span></div>
         </section>
       </div>
     </div>
@@ -1087,6 +1147,7 @@ function AttemptDrawer({ thread, width, onResize, onClose, onRetry, onSelectAtte
 function PromptFullscreen({ value, files, onChange, onClose }) {
   // 全屏编辑器沿用页面内的 @ 参考图关联格式，避免长提示词编辑时丢失该能力。
   const editorRef = useRef(null);
+  const composingRef = useRef(false);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -1094,7 +1155,10 @@ function PromptFullscreen({ value, files, onChange, onClose }) {
 
   useEffect(() => {
     const editor = editorRef.current;
-    if (editor && editorPromptText(editor) !== value) renderPromptContent(editor, value, files);
+    // 输入法组合期间跳过 DOM 重建，避免打断拼音输入。
+    if (editor && !composingRef.current && editorPromptText(editor) !== value) {
+      renderPromptContent(editor, value, files);
+    }
   }, [value, files]);
 
   function updateMention() {
@@ -1119,16 +1183,35 @@ function PromptFullscreen({ value, files, onChange, onClose }) {
     const editor = editorRef.current;
     const selection = window.getSelection();
     if (!editor || !selection?.rangeCount) return;
-    const range = selection.getRangeAt(0);
-    const node = range.startContainer;
-    const text = node.nodeType === Node.TEXT_NODE ? node.textContent : "";
-    const atIndex = text.slice(0, range.startOffset).lastIndexOf("@");
-    if (atIndex < 0 || node.nodeType !== Node.TEXT_NODE) return;
-    range.setStart(node, atIndex);
-    range.deleteContents();
+    let range = selection.getRangeAt(0);
+    // 遍历所有文本节点，找到最后一个独立的 @ 并删除。
+    let lastAtNode = null;
+    let lastAtOffset = -1;
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+    let textNode;
+    while ((textNode = walker.nextNode())) {
+      const idx = textNode.textContent.lastIndexOf("@");
+      if (idx >= 0) {
+        lastAtNode = textNode;
+        lastAtOffset = idx;
+      }
+    }
+    if (lastAtNode && lastAtOffset >= 0) {
+      const atRange = document.createRange();
+      atRange.setStart(lastAtNode, lastAtOffset);
+      atRange.setEnd(lastAtNode, lastAtOffset + 1);
+      atRange.deleteContents();
+      range = document.createRange();
+      range.setStart(lastAtNode, lastAtOffset);
+      range.collapse(true);
+    }
     const chip = createMentionChip(file);
     range.insertNode(chip);
+    // 在 chip 后插入零宽空格，确保光标有文本节点停留，避免输入法闪烁。
+    const spacer = document.createTextNode("\u200B");
     range.setStartAfter(chip);
+    range.insertNode(spacer);
+    range.setStart(spacer, 1);
     range.collapse(true);
     selection.removeAllRanges();
     selection.addRange(range);
@@ -1157,7 +1240,7 @@ function PromptFullscreen({ value, files, onChange, onClose }) {
     }
   }
 
-  return <div className="prompt-fullscreen" role="dialog" aria-modal="true"><div className="prompt-fullscreen-panel"><header><div><span>提示词编辑</span><small>{value.length}/5000</small></div><button type="button" onClick={onClose} title="关闭全屏"><X size={19} /></button></header><div className="prompt-fullscreen-editor"><div ref={editorRef} className="fullscreen-rich-prompt" contentEditable suppressContentEditableWarning onInput={syncFullscreenPrompt} onKeyDown={handleKeyDown} data-placeholder="写下你的创作构想…" autoFocus />{mentionOpen && mentionCandidates.length > 0 && <div className="fullscreen-mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择，Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>{referenceLabel(item.file.name)}</span><kbd>{index + 1}</kbd></button>)}</div>}</div><footer><span>输入 @ 可关联参考图，支持长提示词编辑。</span><button type="button" className="primary-action" onClick={onClose}>完成</button></footer></div></div>;
+  return <div className="prompt-fullscreen" role="dialog" aria-modal="true"><div className="prompt-fullscreen-panel"><header><div><span>提示词编辑</span><small>{value.length}/5000</small></div><button type="button" onClick={onClose} title="关闭全屏"><X size={19} /></button></header><div className="prompt-fullscreen-editor"><div ref={editorRef} className="fullscreen-rich-prompt" contentEditable suppressContentEditableWarning onInput={syncFullscreenPrompt} onKeyDown={handleKeyDown} onCompositionStart={() => { composingRef.current = true; }} onCompositionEnd={() => { setTimeout(() => { composingRef.current = false; }, 100); }} data-placeholder="写下你的创作构想…" autoFocus />{mentionOpen && mentionCandidates.length > 0 && <div className="fullscreen-mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择,Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>{referenceLabel(item.file.name)}</span><kbd>{index + 1}</kbd></button>)}</div>}</div><footer><span>输入 @ 可关联参考图，支持长提示词编辑。</span><button type="button" className="primary-action" onClick={onClose}>完成</button></footer></div></div>;
 }
 
 function getPromptExcerpt(prompt, maxLength = 96) {
@@ -1212,7 +1295,7 @@ export function LibraryPage() {
   const tabItems = { "我的作品": creationWorks, "收藏灵感": savedInspiration };
   const display = tabItems[tab];
   function continueWork(item) { // 使用当前作品的提示词和模型参数继续创作。
-    setDraft({ prompt: item.prompt, model: item.model, size: "auto", quality: "auto", mode: "图生图" }); navigate("/create"); setToast("已从此版本继续创作");
+    setDraft({ prompt: item.prompt, model: normalizeModel(item.model), size: "auto", quality: "auto", mode: "图生图" }); navigate("/create"); setToast("已从此版本继续创作");
   }
   return <section className="content-page library-page"><PageHeading title={<>我的画廊</>} description="沉淀作品与收藏的灵感。" action={<button className="primary-action" onClick={() => navigate("/create")}><Plus size={16} />继续创作</button>} />
     <div className="library-tabs">{["我的作品", "收藏灵感"].map((item) => <button className={tab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{item}</button>)}</div>
@@ -1233,7 +1316,7 @@ export function CommunityPage() {
   const { works, toggleWork, addComment, following, setFollowing, setDraft, setToast } = useStore(); const navigate = useNavigate(); const [category, setCategory] = useState("全部"); const [selected, setSelected] = useState(null); const root = useRef(null);
   const list = category === "全部" ? works : works.filter((item) => item.category === category);
   useGSAP(() => { const cards = gsap.utils.toArray(".feed-card"); gsap.fromTo(cards, { opacity: 0.25, scale: 0.9 }, { opacity: 1, scale: 1, stagger: 0.08, scrollTrigger: { trigger: ".community-feed", start: "top 80%", end: "bottom 65%", scrub: 0.8 } }); }, { scope: root });
-  function remix(work) { setDraft({ prompt: work.prompt, model: work.model, size: work.size, mode: "图生图" }); navigate("/create"); setToast("已复制整套参数，可直接开始创作"); }
+  function remix(work) { setDraft({ prompt: work.prompt, model: normalizeModel(work.model), size: work.size, mode: "图生图" }); navigate("/create"); setToast("已复制整套参数，可直接开始创作"); }
   return <section className="content-page community-page" ref={root}><PageHeading eyebrow="DISCOVER" title={<>灵感</>} description="看见喜欢的，带去继续创作。" action={<button className="primary-action" onClick={() => navigate("/create")}><WandSparkles size={16} />去创作</button>} />
     <section className="community-bento"><article className="bento-hero" onClick={() => setSelected(works[0])}><img src={works[0].image} alt="" /><div><span>本周精选</span><h2>{works[0].title}</h2><p>来自 {works[0].author} 的公开作品</p></div></article><article className="bento-prompt"><span>可以被复刻的画面</span><p>"{works[1].prompt.slice(0, 36)}..."</p><button onClick={() => remix(works[1])}>带走这套参数 <ArrowRight size={15} /></button></article><article className="bento-event"><span>正在进行</span><strong>#手机壁纸</strong><p>1,284 份灵感正在生长</p></article><article className="bento-creator"><img src={works[2].avatar} alt="" /><div><b>{works[2].author}</b><span>把夜色做成海报的人</span></div><button onClick={() => setFollowing((items) => items.includes(works[2].authorId) ? items.filter((id) => id !== works[2].authorId) : [...items, works[2].authorId])}>{following.includes(works[2].authorId) ? "已关注" : "关注"}</button></article></section>
     <div className="community-filter"><div>{categories.map((item) => <button key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div><button className="sort-button">热门 <ChevronDown size={14} /></button></div>
@@ -1266,8 +1349,8 @@ function PageHeading({ title, description, action }) {
   return <header className="page-heading"><div><h1>{title}</h1><p>{description}</p></div>{action && <div className="heading-side">{action}</div>}</header>;
 }
 
-function Modal({ title, children, onClose, headerExtra }) {
-  // 以通用遮罩承载详情、编辑和解析界面；headerExtra 渲染在标题右侧，用于放置轻量操作。
+/** 以通用遮罩承载详情、编辑和解析界面；headerExtra 渲染在标题右侧，用于放置轻量操作。 */
+export function Modal({ title, children, onClose, headerExtra }) {
   return <div className="modal-backdrop" onMouseDown={onClose}><section className="modal" onMouseDown={(event) => event.stopPropagation()}><header><div className="modal-title-group"><h2>{title}</h2>{headerExtra}</div><button onClick={onClose}><X size={19} /></button></header>{children}</section></div>;
 }
 

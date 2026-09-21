@@ -166,6 +166,58 @@ CREATE TABLE `prompt_template_usages` (
   CONSTRAINT `fk_prompt_usages_thread` FOREIGN KEY (`thread_id`) REFERENCES `threads` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_prompt_usages_attempt` FOREIGN KEY (`attempt_id`) REFERENCES `attempts` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Admin/credit tables are maintained here as well as in the backend bootstrap schema.
+-- 新增的 admin/credit 表使用 IF NOT EXISTS（重复导入不重建）；基础表沿用 dump 的
+-- DROP+CREATE 语义：本文件用于全新环境一次性初始化，重复导入会重置基础表数据。
+CREATE TABLE IF NOT EXISTS `admin_users` (
+  `id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '管理员 ID',
+  `email` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '登录邮箱',
+  `password_hash` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '密码哈希（BCrypt）',
+  `display_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '展示名称',
+  `role` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'admin' COMMENT 'admin/super-admin',
+  `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active' COMMENT 'active/disabled',
+  `remark` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '备注（如创建人）',
+  `last_login_at` datetime(3) DEFAULT NULL COMMENT '最近登录时间',
+  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_admin_users_email` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='管理端账号';
+
+-- 计价规则：管理端写，生图链路只读（经 PricingService 内存缓存）。
+CREATE TABLE IF NOT EXISTS `credit_pricing_rules` (
+  `id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '规则 ID',
+  `action` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'image_generation' COMMENT '计费动作：image_generation（预留 optimize/parse 等）',
+  `model` varchar(128) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '模型名，default 为兜底规则',
+  `base_cost` int NOT NULL COMMENT '文生图单张基准价（积分）',
+  `img2img_cost` int NOT NULL COMMENT '图生图单张基准价（积分）',
+  `size_multipliers` json NOT NULL COMMENT '尺寸系数，如 {"auto":1,"1024x1024":1}',
+  `quality_multipliers` json NOT NULL COMMENT '质量系数，如 {"high":1,"medium":0.8,"low":0.6}',
+  `is_active` tinyint(1) NOT NULL DEFAULT '1' COMMENT '是否生效：1/0',
+  `remark` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '备注',
+  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_rule_action_model` (`action`,`model`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='积分计价规则';
+
+-- 积分流水：唯一事实来源；SUM(amount) 应等于 users.credit_balance。
+CREATE TABLE IF NOT EXISTS `credit_transactions` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '流水 ID',
+  `user_id` char(36) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '所属用户',
+  `attempt_id` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '关联 Attempt（consume/refund 必填；不设外键，提交失败时 attempt 行可能不存在）',
+  `type` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'consume/refund/recharge/adjust',
+  `amount` int NOT NULL COMMENT '带符号变动量：consume 为负，其余为正；adjust 可负',
+  `balance_after` int NOT NULL COMMENT '变动后余额快照，用于对账排查',
+  `reason` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '变动原因：管理端操作必填；系统返还写系统原因',
+  `operator_id` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '操作人（管理端操作时从 JWT 取；系统动作为 NULL）',
+  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_attempt_type` (`attempt_id`,`type`),
+  KEY `idx_tx_user_created` (`user_id`,`created_at`),
+  KEY `idx_tx_type_created` (`type`,`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='积分流水';
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
@@ -280,6 +332,33 @@ INSERT INTO `users` VALUES ('85b48a60-1715-42f8-b4b1-5c223b6a9c1a','usera@exam.c
 INSERT INTO `users` VALUES ('f77171fc-7893-4236-9fef-49ef33c8650b','userb@exam.com','userb@exam.com','$2a$10$kU2I3q7fda8cQ7IBPcGiuuwzyb.z4Fk8HAFQm4mT3VQsj73iDvbee','userB',NULL,'user','active',300,NULL,'2026-09-02 09:56:11.319','2026-09-02 10:37:03.055','2026-09-02 10:37:03.055');
 /*!40000 ALTER TABLE `users` ENABLE KEYS */;
 UNLOCK TABLES;
+
+-- 管理端账号与积分模块种子数据（可重复执行）。
+-- 1. 提升超级管理员；下面第 3 步迁移以 users 表的管理员角色行为前提。
+UPDATE `users` SET role = 'super-admin' WHERE email = 'admin@exam.com' AND status = 'active';
+
+-- 2. 初始计价规则（示例价，上线前在管理端调整）；重复执行不覆盖已有配置。
+INSERT INTO `credit_pricing_rules` (id, action, model, base_cost, img2img_cost, size_multipliers, quality_multipliers, is_active, remark)
+VALUES
+  (UUID(), 'image_generation', 'gpt-image-2', 20, 30,
+   JSON_OBJECT('auto', 1, '1024x1024', 1, '1536x1024', 1.25, '1024x1536', 1.25),
+   JSON_OBJECT('high', 1, 'medium', 0.8, 'low', 0.6), 1, '初始规则'),
+  (UUID(), 'image_generation', 'default', 20, 30,
+   JSON_OBJECT('auto', 1),
+   JSON_OBJECT('high', 1, 'medium', 0.8, 'low', 0.6), 1, '兜底规则')
+ON DUPLICATE KEY UPDATE updated_at = updated_at;
+
+-- 3. 存量迁移：把 users 表里已有的 admin/super-admin 复制到 admin_users（密码哈希原样沿用）。
+--    已迁移过的邮箱不会重复插入；管理员在 users 表中的角色行保留不动，不影响其普通用户身份。
+INSERT INTO `admin_users` (id, email, password_hash, display_name, role, status, remark)
+SELECT UUID(), u.email, u.password_hash, u.display_name, u.role, 'active', '从 users 表迁移'
+FROM `users` u
+WHERE u.role IN ('admin', 'super-admin')
+  AND u.email IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM `admin_users` a WHERE a.email = u.email);
+
+-- 4. 存量用户一次性赠送（额度可调）：只补零余额账号，避免覆盖已调整过的用户。
+UPDATE `users` SET credit_balance = 100 WHERE credit_balance = 0;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;

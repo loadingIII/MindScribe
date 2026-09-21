@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowUpRight, Check, Clock3, PanelRight, Pencil, Plus, Sparkles, WandSparkles, Zap } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Check, PanelRight, Pencil, Plus, Sparkles, UserRound, WandSparkles, Zap } from "lucide-react";
 import { image } from "../assets/mockData";
 import { ROUTES } from "../config/routes";
 import { ZH_CN } from "../locales/zh-CN";
@@ -8,18 +8,21 @@ import { useEffect, useState } from "react";
 
 const navItems = [
   { to: ROUTES.create, label: "创作", icon: WandSparkles },
-  { to: ROUTES.prompts, label: "提示词", icon: Sparkles }
+  { to: ROUTES.prompts, label: "提示词", icon: Sparkles },
+  { to: ROUTES.profile, label: "我的", icon: UserRound }
 ];
 
 /** 提供应用侧边导航、顶部状态栏和全局通知。 */
 export default function AppShell({ onLogout }) {
-  const { credits, toast } = useStore();
+  const { credits, toast, user, resetWorkspace } = useStore();
   const location = useLocation();
   const navigate = useNavigate();
   const isCreateHome = location.pathname === ROUTES.create;
   const isPromptBuilder = location.pathname === "/create/prompt-builder";
   const isPrompts = location.pathname.startsWith(ROUTES.prompts);
-  const activeLabel = isPrompts ? "提示词库" : navItems.find((item) => location.pathname.startsWith(item.to))?.label || "创作";
+  const isProfile = location.pathname.startsWith(ROUTES.profile);
+  // 顶栏标题："我的"页展示"个人中心"，其余按导航匹配。
+  const activeLabel = isProfile ? "个人中心" : isPrompts ? "提示词库" : navItems.find((item) => location.pathname.startsWith(item.to))?.label || "创作";
 
   // 创作页顶栏右侧控件状态：通过自定义事件与 LegacyApp 同步
   const [taskName, setTaskName] = useState("");
@@ -63,6 +66,8 @@ export default function AppShell({ onLogout }) {
   async function logout() {
     await fetch("/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
     localStorage.removeItem("mindscribe-user");
+    // 退出前重置创作工作台，清除任务状态、参考图等本地缓存，避免遗留到下一个账号。
+    resetWorkspace();
     onLogout?.();
     navigate(ROUTES.login, { replace: true });
   }
@@ -71,7 +76,7 @@ export default function AppShell({ onLogout }) {
     <aside className="side-nav">
       <Link to={ROUTES.create} className="brand-lockup"><span className="brand-orbit"><WandSparkles size={16} /></span><b>MIND</b><i>SCRIBE</i></Link>
       <nav>{navItems.map(({ to, label, icon: Icon }) => <NavLink key={to} to={to} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}><Icon size={18} /><span>{label}</span></NavLink>)}</nav>
-      <div className="nav-bottom"><NavLink to={ROUTES.profile} className={({ isActive }) => `account-dock ${isActive ? "active" : ""}`}><img src={image("creator-avatar", 80, 80)} alt="我的头像" /><span><b>漫游的树</b><i><Zap size={12} /> {credits.toLocaleString()} {ZH_CN.creditsUnit}</i></span><span className="account-arrow">↗</span></NavLink><button className="logout-button" onClick={logout}>退出登录</button></div>
+      <div className="nav-bottom"><NavLink to={ROUTES.profile} className={({ isActive }) => `account-dock ${isActive ? "active" : ""}`}><img src={user?.avatarUrl || image("creator-avatar", 80, 80)} alt="我的头像" /><span><b>{user?.displayName || "未登录"}</b><i><Zap size={12} /> {credits.toLocaleString()} {ZH_CN.creditsUnit}</i></span><span className="account-arrow">↗</span></NavLink><button className="logout-button" onClick={logout}>退出登录</button></div>
     </aside>
     <main className={`app-main ${workspaceOpen ? "workspace-open" : ""}`}>
       <header className={`topbar ${isCreateHome ? "create-topbar" : ""} ${isPrompts ? "prompt-topbar" : ""}`}>
@@ -153,7 +158,7 @@ export default function AppShell({ onLogout }) {
             </div>
           </>
         )}
-        {isPromptBuilder ? <><Link to={ROUTES.create} className="prompt-builder-back"><ArrowLeft size={15} />返回创作</Link><div className="prompt-builder-top-actions"><button className="prompt-builder-save" type="button" onClick={() => window.dispatchEvent(new CustomEvent("imgs-prompt-save"))}><Check size={15} />保存</button></div></> : !isPrompts && !isCreateHome && <div className="top-actions"><button className="icon-button" title="通知"><Clock3 size={17} /></button><Link to={ROUTES.create} className="quick-create"><Plus size={16} />{ZH_CN.newCreation}</Link></div>}
+        {isPromptBuilder && <><Link to={ROUTES.create} className="prompt-builder-back"><ArrowLeft size={15} />返回创作</Link><div className="prompt-builder-top-actions"><button className="prompt-builder-save" type="button" onClick={() => window.dispatchEvent(new CustomEvent("imgs-prompt-save"))}><Check size={15} />保存</button></div></>}
       </header>
       <Outlet />
     </main>

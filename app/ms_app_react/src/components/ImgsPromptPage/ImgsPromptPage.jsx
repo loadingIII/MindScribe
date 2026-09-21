@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useCachedState, useStore } from "../../store/AppStore";
 import { ImagePreview } from "../../features/legacy/LegacyApp";
 import SelectField from "../SelectField";
-import { loadDraft, deleteDraft, saveDraft as saveDraftToStorage } from "../../utils/draftStorage";
+import { loadDraft, saveDraft as saveDraftToStorage } from "../../utils/draftStorage";
 import "./ImgsPromptPage.css";
 import "./ImgsPromptPage.responsive.css";
 
@@ -283,46 +283,55 @@ function PromptChip({ chip, onInput, onKey, onBlur, onRemove, compactLabel = fal
 export default function ImgsPromptPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { setToast } = useStore();
-  
-  // 构建器使用独立的本地状态，不再与创作模块共享全局 draft
-  const [localDraft, setLocalDraft] = useState({
-    prompt: "",
-    tags: [],
-    references: [],
-    model: "gpt-image-2",
-    mode: "文本生图"
-  });
-  const [currentDraftId, setCurrentDraftId] = useState(null);
-  
-  // 从 URL 参数读取草稿 ID，加载到本地状态
-  useEffect(() => {
-    const draftId = searchParams.get("draft");
-    console.log('[ImgsPromptPage] URL 参数 draftId:', draftId);
-    console.log('[ImgsPromptPage] currentDraftId:', currentDraftId);
-    if (draftId && draftId !== currentDraftId) {
-      const savedDraft = loadDraft(draftId);
-      console.log('[ImgsPromptPage] 加载的草稿数据:', savedDraft);
-      if (savedDraft) {
-        setLocalDraft({
-          prompt: savedDraft.prompt || "",
-          tags: savedDraft.tags || [],
-          references: savedDraft.references || [],
-          model: savedDraft.model || "gpt-image-2",
-          mode: savedDraft.mode || "文本生图"
-        });
-        console.log('[ImgsPromptPage] 设置 localDraft，references 长度:', savedDraft.references?.length);
-        setCurrentDraftId(draftId);
-        setToast(`已加载草稿：${savedDraft.source || "图像解析"}`);
-        
-        // 移除 URL 参数，避免刷新时重复加载
-        searchParams.delete("draft");
-        setSearchParams(searchParams, { replace: true });
-      } else {
-        setToast("草稿不存在或已过期");
-      }
+  // createDraft/setCreateDraft 是创作模块的全局草稿：从创作页进入时读取，保存时回写。
+  const { draft: createDraft, setDraft: setCreateDraft, setToast } = useStore();
+
+  // 入口标记：从创作页进入时（?from=create）用全局创作草稿播种本地状态，
+  // 让参考图与提示词和创作模块保持同一份数据；提示词库等其它入口仍使用独立状态。
+  const fromCreate = searchParams.get("from") === "create";
+
+  // URL 草稿参数在首帧同步读取，草稿内容直接参与初始状态，避免异步加载后再重置芯片。
+  const urlDraftId = searchParams.get("draft");
+  const [urlDraft] = useState(() => (urlDraftId ? loadDraft(urlDraftId) : null));
+
+  // 构建器使用独立的本地状态：仅首帧从入口来源播种一次，之后的编辑不再与全局草稿双向绑定。
+  const [localDraft] = useState(() => {
+    if (urlDraft) {
+      return {
+        prompt: urlDraft.prompt || "",
+        tags: urlDraft.tags || [],
+        references: urlDraft.references || [],
+        model: urlDraft.model || "gpt-image-2",
+        mode: urlDraft.mode || "文本生图"
+      };
     }
-  }, [searchParams, setSearchParams, setToast, currentDraftId]);
+    if (fromCreate) {
+      return {
+        prompt: createDraft.prompt || "",
+        tags: Array.isArray(createDraft.tags) ? createDraft.tags : [],
+        references: Array.isArray(createDraft.references) ? createDraft.references : [],
+        model: createDraft.model || "gpt-image-2",
+        mode: createDraft.mode || "文本生图"
+      };
+    }
+    return {
+      prompt: "",
+      tags: [],
+      references: [],
+      model: "gpt-image-2",
+      mode: "文本生图"
+    };
+  });
+  const [currentDraftId, setCurrentDraftId] = useState(urlDraftId);
+
+  // 加载结果提示，并移除 URL 参数避免刷新时重复加载同一份草稿。
+  useEffect(() => {
+    if (!urlDraftId) return;
+    if (urlDraft) setToast(`已加载草稿：${urlDraft.source || "图像解析"}`);
+    else setToast("草稿不存在或已过期");
+    searchParams.delete("draft");
+    setSearchParams(searchParams, { replace: true });
+  }, []);
   
   // 参考图与提示词使用本地状态，与创作模块完全独立
   const references = localDraft.references || [];
@@ -388,34 +397,10 @@ export default function ImgsPromptPage() {
     if (sub !== currentSub) setSub(currentSub);
   }, [active, sub, currentSub, subs]);
 
-  // 当草稿加载后，重新解析 chips
+  // 首帧把未保存快照对齐为完整构建结果（含字段芯片）：带着标签进入时避免点击"返回创作"被误判为有未保存修改。
   useEffect(() => {
-    console.log('[ImgsPromptPage] chips useEffect 触发，currentDraftId:', currentDraftId);
-    console.log('[ImgsPromptPage] localDraft.prompt:', localDraft.prompt);
-    console.log('[ImgsPromptPage] localDraft.tags:', localDraft.tags);
-    if (currentDraftId) {
-      const parsed = parseChips(localDraft.prompt || "");
-      const textChips = parsed.filter((chip) => chip.type === "text");
-      const parsedFields = parsed.filter((chip) => chip.type === "field");
-      const existingKeys = new Set(parsedFields.map((chip) => chip.key));
-      const tagFields = (localDraft.tags || []).flatMap((tag, index) => {
-        const key = String(tag?.key || "").trim();
-        if (!key || existingKeys.has(key)) return [];
-        existingKeys.add(key);
-        return [{
-          id: `field-tag-${key}-${index}`,
-          type: "field",
-          key,
-          value: tag.value || ""
-        }];
-      });
-      const text = textChips.length ? textChips : [{ id: "text-composer", type: "text", value: "" }];
-      const newChips = [...text, ...parsedFields, ...tagFields];
-      console.log('[ImgsPromptPage] 设置新的 chips:', newChips);
-      setChips(newChips);
-      savedSnapshot.current = localDraft.prompt || "";
-    }
-  }, [currentDraftId, localDraft.prompt, localDraft.tags]);
+    savedSnapshot.current = buildPrompt();
+  }, []);
 
   useEffect(() => {
     const saveHandler = () => saveCurrentDraft();
@@ -483,7 +468,8 @@ export default function ImgsPromptPage() {
     });
   }
 
-  // 保存当前提示词构建状态到 localStorage 草稿：仅保存，不离开当前页面，不影响创作模块。
+  // 保存当前提示词构建状态：写入 localStorage 草稿（仅保存，不离开当前页面）；
+  // 同时回写创作模块的全局草稿，返回创作页后提示词与标签栏立即生效。
   function saveCurrentDraft() {
     const composer = chips.find((chip) => chip.type === "text");
     const prompt = composer ? composer.value : "";
@@ -504,7 +490,10 @@ export default function ImgsPromptPage() {
 
     if (savedId) {
       setCurrentDraftId(savedId);
+      // 快照存完整构建结果（含字段芯片），保证保存后返回创作页时不再误报"未保存"。
       savedSnapshot.current = buildPrompt();
+      // 回写创作模块的全局草稿：prompt 仅含"用户输入"芯片文本，标签通过 tags 单独传递。
+      setCreateDraft((current) => ({ ...current, prompt, tags }));
       setToast("草稿已保存");
     } else {
       setToast("草稿保存失败");
@@ -644,6 +633,8 @@ export default function ImgsPromptPage() {
     setOptimizing(true);
     try {
       // 后端根据 [序号:文件名] 标记筛选实际关联图并上传到 OSS。
+      // File 与 URL 分别携带各自的序号数组：referenceIndexes 只配 referenceImages，
+      // referenceUrlIndexes 只配 referenceUrls，后端按数量一一配对校验。
       const form = new FormData();
       form.append("userPrompt", userPrompt);
       references.forEach((item, index) => {
@@ -653,7 +644,7 @@ export default function ImgsPromptPage() {
           form.append("referenceIndexes", String(index + 1));
         } else if (item.url && !String(item.url).startsWith("blob:")) {
           form.append("referenceUrls", item.url);
-          form.append("referenceIndexes", String(index + 1));
+          form.append("referenceUrlIndexes", String(index + 1));
         }
       });
       const response = await fetch("/ai/prompts/optimize", {
@@ -790,11 +781,14 @@ export default function ImgsPromptPage() {
             {mention !== null && (
               <div className="prompt-mention-menu">
                 <small>关联参考图 · ↑↓ 选择，Enter 确认</small>
-                {mentionItems.length ? mentionItems.map((item, index) => (
-                  <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id || item.name} onMouseDown={(event) => { event.preventDefault(); insertReference(item); }}>
-                    <img src={item.url} alt="" />{item.file?.name || item.name}
-                  </button>
-                )) : <p className="mention-empty">暂无可关联的参考图，请先在创作页添加</p>}
+                {mentionItems.length ? mentionItems.map((item, index) => {
+                  const refName = item.file?.name || item.name;
+                  return (
+                    <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id || item.name} title={refName} onMouseDown={(event) => { event.preventDefault(); insertReference(item); }}>
+                      <img src={item.url} alt="" /><span>{refName}</span>
+                    </button>
+                  );
+                }) : <p className="mention-empty">暂无可关联的参考图，请先在创作页添加</p>}
               </div>
             )}
           </div>

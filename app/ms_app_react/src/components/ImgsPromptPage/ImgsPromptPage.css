@@ -387,6 +387,13 @@ font:9px 'DM Mono',monospace}
   background:transparent;
   text-align:left;
 font-size:11px}
+/* 文件名过长时截断显示，完整名称通过悬浮提示查看。 */
+.prompt-mention-menu button span{
+  flex:1;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap}
 .prompt-mention-menu button:hover,.prompt-mention-menu button.active{
 background:#eef1dc}
 .prompt-mention-menu .mention-empty{

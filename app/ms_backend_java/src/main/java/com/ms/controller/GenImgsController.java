@@ -6,6 +6,7 @@ import com.ms.pojo.vo.ThreadVO;
 import com.ms.pojo.entity.AttemptEntity;
 import com.ms.pojo.entity.ThreadEntity;
 import java.util.List;
+import java.util.Map;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -72,26 +73,15 @@ public class GenImgsController {
         return service.findAttempts(currentUserId(servletRequest), threadId, page, size);
     }
 
-    /** 修改 Thread 的可变字段。 */
+    /** 重命名 Thread：客户端唯一允许的写操作，状态机字段不对外开放。 */
     @PatchMapping("/threads/{threadId}")
-    public int updateThread(
+    public Map<String, Object> renameThread(
             @PathVariable String threadId,
             HttpServletRequest servletRequest,
-            @RequestBody ThreadEntity thread) {
-        log.info("更新线程，threadId={}", threadId);
-        thread.setId(threadId);
-        return service.updateThread(currentUserId(servletRequest), thread);
-    }
-
-    /** 修改 Attempt 的状态机和运行结果字段。 */
-    @PatchMapping("/attempts/{attemptId}")
-    public int updateAttempt(
-            @PathVariable String attemptId,
-            HttpServletRequest servletRequest,
-            @RequestBody AttemptEntity attempt) {
-        log.info("更新尝试，attemptId={}", attemptId);
-        attempt.setId(attemptId);
-        return service.updateAttempt(currentUserId(servletRequest), attempt);
+            @jakarta.validation.Valid @RequestBody com.ms.pojo.dto.RenameThreadRequest request) {
+        service.renameThread(currentUserId(servletRequest), threadId, request.title().trim());
+        log.info("重命名线程成功，threadId={}", threadId);
+        return Map.of("id", threadId, "title", request.title().trim());
     }
 
     /** JWT 拦截器已完成认证，这里只读取其写入的用户 ID。 */
