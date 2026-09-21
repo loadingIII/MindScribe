@@ -41,6 +41,24 @@ public interface CreditMapper {
     @Select("SELECT " + TX_COLUMNS + " FROM credit_transactions WHERE attempt_id = #{attemptId} AND type = #{type} LIMIT 1")
     CreditTransactionEntity findTransactionByAttempt(@Param("attemptId") String attemptId, @Param("type") String type);
 
+    /**
+     * 孤儿扣费对账：有 consume 流水、但没有对应 refund 流水，且扣费时间早于阈值
+     * （排除进行中的任务）的记录。覆盖两类场景：Attempt 行从未落库（进程崩溃）、
+     * Attempt 落库失败后流水未对齐。金额与属主从 consume 流水自携带，无需关联 attempts。
+     */
+    @Select("""
+            SELECT c.attempt_id AS attemptId, c.user_id AS userId, ABS(c.amount) AS amount
+            FROM credit_transactions c
+            WHERE c.type = 'consume'
+              AND c.created_at < #{threshold}
+              AND NOT EXISTS (
+                  SELECT 1 FROM credit_transactions r
+                  WHERE r.attempt_id = c.attempt_id AND r.type = 'refund')
+            LIMIT #{limit}
+            """)
+    List<java.util.Map<String, Object>> findOrphanConsumes(@Param("threshold") java.time.LocalDateTime threshold,
+                                                           @Param("limit") int limit);
+
     /** 分页查询流水，条件由 XML 动态拼接。 */
     List<CreditTransactionEntity> findTransactions(@Param("userId") String userId,
                                                    @Param("type") String type,

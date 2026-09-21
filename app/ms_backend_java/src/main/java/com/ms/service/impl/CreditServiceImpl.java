@@ -63,8 +63,12 @@ public class CreditServiceImpl implements CreditService {
             log.info("返还已执行过，跳过重复返还，attemptId={}", attemptId);
             return;
         }
-        // 流水占位成功后再加余额；余额更新与流水在同一事务，任一失败整体回滚。
-        creditMapper.addBalance(userId, amount);
+        // 流水占位成功后再加余额；二者同事务，任一失败整体回滚（占位流水一并回滚，名额不浪费）。
+        // 用户不存在/被禁用时加余额命中 0 行：必须抛异常回滚，否则流水记了退款而余额没加，
+        // 既破坏 SUM(amount)=credit_balance 对账约束，又永久占用了该 attempt 的退款名额。
+        if (creditMapper.addBalance(userId, amount) == 0) {
+            throw new IllegalStateException("返还失败：用户不存在或已被禁用，userId=" + userId);
+        }
         Integer balance = creditMapper.findBalance(userId);
         refund.setBalanceAfter(balance == null ? 0 : balance);
         log.info("积分返还成功，userId={} attemptId={} amount={} balance={}",

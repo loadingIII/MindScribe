@@ -61,11 +61,17 @@ public class AdminCreditController {
     /** 管理端直接创建普通用户账号：跳过邮箱验证码，角色固定 user，赠送与其他注册一致的 100 积分。 */
     @PostMapping("/users")
     public Map<String, Object> createUser(@RequestAttribute("userId") String operatorId,
-                                          @RequestBody AdminCreateUserRequest request) {
+                                          @jakarta.validation.Valid @RequestBody AdminCreateUserRequest request) {
         String email = request.email().trim().toLowerCase();
+        // 查重仅作友好提示；并发下仍可能撞 uk_users_email 唯一键，捕获后返回 409 而非 500。
         if (userMapper.countByEmail(email) > 0) throw new IllegalArgumentException("该邮箱已被注册");
         String id = UUID.randomUUID().toString();
-        userMapper.insertUser(id, email, email, passwordEncoder.encode(request.password()), request.displayName().trim());
+        try {
+            userMapper.insertUser(id, email, email, passwordEncoder.encode(request.password()), request.displayName().trim());
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            log.warn("管理端创建用户撞邮箱唯一键，operator={} email={}", operatorId, email);
+            throw new IllegalArgumentException("该邮箱已被注册");
+        }
         log.info("管理端创建用户成功，operator={} email={}", operatorId, email);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("id", id);

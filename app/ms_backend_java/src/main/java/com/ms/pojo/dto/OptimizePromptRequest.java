@@ -25,4 +25,10 @@ public class OptimizePromptRequest {
 
     /** 每个 multipart 图片对应的前端参考图序号，与 referenceImages 一一对应。 */
     private List<Integer> referenceIndexes;
+
+    /** 草稿复用的已上传参考图 OSS 地址；与 referenceImages 互补，允许只有其一。 */
+    private List<String> referenceUrls;
+
+    /** 每个复用 URL 对应的前端参考图序号，与 referenceUrls 一一对应。 */
+    private List<Integer> referenceUrlIndexes;
 }

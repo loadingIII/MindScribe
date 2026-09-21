@@ -52,8 +52,11 @@ mvn spring-boot:run
 
 ```powershell
 pip install -r infers/gen_img_v1_py/requirements.txt
-uvicorn infers.gen_img_v1_py.app:app --reload --port 8000
+uvicorn infers.gen_img_v1_py.app:app --reload --host 127.0.0.1 --port 8000
 ```
+
+> 服务无鉴权，只供同一台机器上的 Java 后端调用，必须绑定 `127.0.0.1`；
+> 切勿用 `--host 0.0.0.0` 对外监听，否则任何能访问该端口的人都可以绕过积分直接生图。
 
 服务提供 `POST /generate` 创建任务，以及 `GET /tasks/{task_id}` 查询任务状态。调用真实模型和 OSS 前，请配置相应的 OpenAI、MySQL、OSS 环境变量；不要将密钥写入版本库。
 

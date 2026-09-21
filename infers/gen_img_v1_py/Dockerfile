@@ -18,8 +18,10 @@ COPY --from=libs . ./libs
 # 注意：.env 已通过 .dockerignore 排除，敏感配置由 docker-compose 环境变量注入。
 COPY . ./infers/gen_img_v1_py
 
-# 容器内监听 8000，由 docker-compose 映射到主机端口。
+# 容器内监听 8000；服务无鉴权，禁止把该端口映射到公网，只允许同网络内的 Java 后端访问。
 EXPOSE 8000
 
 # 以包形式启动 uvicorn；config.yml 通过同目录占位符从环境变量读取密钥。
+# 容器内绑定 0.0.0.0 属常规做法，隔离由 compose 不映射宿主端口保证；
+# 本地非容器运行时请改用 --host 127.0.0.1，避免推理服务暴露到局域网。
 CMD ["uvicorn", "infers.gen_img_v1_py.app:app", "--host", "0.0.0.0", "--port", "8000"]

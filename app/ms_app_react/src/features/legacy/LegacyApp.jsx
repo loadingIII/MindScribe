@@ -606,7 +606,7 @@ export function CreatePage() {
     const quality = normalizeQuality(draft.quality);
     const mode = files.length ? "image-to-image" : "text-to-image";
     let cancelled = false;
-    fetch(`/credits/estimate?model=${encodeURIComponent(draft.model || "gpt-image-2")}&size=${encodeURIComponent(size)}&quality=${encodeURIComponent(quality)}&mode=${mode}&n=${count}`, { credentials: "include" })
+    fetch(`/credits/estimate?model=${encodeURIComponent(draft.model || "gpt-image-2")}&size=${encodeURIComponent(size)}&quality=${encodeURIComponent(quality)}&mode=${mode}&n=${count}&referenceCount=${files.length}`, { credentials: "include" })
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => { if (!cancelled && data && typeof data.cost === "number") setEstimate(data.cost); })
       .catch(() => { /* 预估失败不影响生成，仅不展示数字。 */ });

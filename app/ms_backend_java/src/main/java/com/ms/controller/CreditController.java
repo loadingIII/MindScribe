@@ -32,15 +32,23 @@ public class CreditController {
         return Map.of("balance", creditService.balance(userId));
     }
 
-    /** 预估一次生图消耗，用于提交前展示「本次预计消耗 X 积分」；mode 决定按文生图或图生图计价。 */
+    /**
+     * 预估一次生图消耗，用于提交前展示「本次预计消耗 X 积分」。
+     * mode 与实际扣费（GenImgsService.quote）保持同一口径：有参考图即按图生图计价，
+     * 前端传入的 mode 仅作为请求体里未携带参考图场景的补充，不一致时以参考图判定为准。
+     */
     @GetMapping("/estimate")
     public Map<String, Object> estimate(@org.springframework.web.bind.annotation.RequestAttribute("userId") String userId,
                                         @RequestParam(defaultValue = "gpt-image-2") String model,
                                         @RequestParam(defaultValue = "auto") String size,
                                         @RequestParam(defaultValue = "high") String quality,
                                         @RequestParam(defaultValue = "text-to-image") String mode,
-                                        @RequestParam(defaultValue = "1") int n) {
-        int cost = pricingService.quote(PricingService.ACTION_IMAGE_GENERATION, model, mode, size, quality, n);
+                                        @RequestParam(defaultValue = "1") int n,
+                                        @RequestParam(required = false) Integer referenceCount) {
+        int safeN = Math.max(1, Math.min(n, 4));
+        boolean hasReference = referenceCount != null && referenceCount > 0;
+        String effectiveMode = hasReference ? PricingService.MODE_IMAGE_TO_IMAGE : mode;
+        int cost = pricingService.quote(PricingService.ACTION_IMAGE_GENERATION, model, effectiveMode, size, quality, safeN);
         return Map.of("cost", cost, "balance", creditService.balance(userId));
     }
 

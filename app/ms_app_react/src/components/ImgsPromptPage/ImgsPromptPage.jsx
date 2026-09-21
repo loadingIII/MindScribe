@@ -633,6 +633,8 @@ export default function ImgsPromptPage() {
     setOptimizing(true);
     try {
       // 后端根据 [序号:文件名] 标记筛选实际关联图并上传到 OSS。
+      // File 与 URL 分别携带各自的序号数组：referenceIndexes 只配 referenceImages，
+      // referenceUrlIndexes 只配 referenceUrls，后端按数量一一配对校验。
       const form = new FormData();
       form.append("userPrompt", userPrompt);
       references.forEach((item, index) => {
@@ -642,7 +644,7 @@ export default function ImgsPromptPage() {
           form.append("referenceIndexes", String(index + 1));
         } else if (item.url && !String(item.url).startsWith("blob:")) {
           form.append("referenceUrls", item.url);
-          form.append("referenceIndexes", String(index + 1));
+          form.append("referenceUrlIndexes", String(index + 1));
         }
       });
       const response = await fetch("/ai/prompts/optimize", {

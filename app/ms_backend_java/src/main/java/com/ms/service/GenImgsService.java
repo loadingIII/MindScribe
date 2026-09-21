@@ -13,6 +13,6 @@ public interface GenImgsService {
     ThreadVO getThread(String userId, String threadId) throws IOException;
     List<ThreadEntity> findThreads(String userId, int page, int size);
     List<AttemptEntity> findAttempts(String userId, String threadId, int page, int size);
-    int updateThread(String userId, ThreadEntity thread);
-    int updateAttempt(String userId, AttemptEntity attempt);
+    /** 客户端仅允许重命名 Thread；状态、结果等字段只能由服务端状态机维护。 */
+    int renameThread(String userId, String threadId, String title);
 }

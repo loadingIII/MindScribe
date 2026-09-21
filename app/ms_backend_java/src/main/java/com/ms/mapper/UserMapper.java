@@ -97,9 +97,8 @@ public interface UserMapper {
     @Select("SELECT COUNT(*) FROM users WHERE role = #{role} AND status = 'active'")
     long countByRole(@Param("role") String role);
 
-    /** 修改指定用户的角色（super-admin 提权/降级管理员使用）。 */
-    @Update("UPDATE users SET role = #{role} WHERE id = #{userId}")
-    int updateRole(@Param("userId") String userId, @Param("role") String role);
+    /* 已删除无人调用的 updateRole：users 表角色变更只能走 admin_users 管理链路，
+       避免误接出客户端可触达的提权入口。 */
 
     /** 创建管理员账号：role 由调用方传入（admin/super-admin），状态直接 active。 */
     @org.apache.ibatis.annotations.Insert("INSERT INTO users (id, username, email, password_hash, display_name, role, status, credit_balance) "

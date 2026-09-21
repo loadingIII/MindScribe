@@ -42,6 +42,18 @@ public interface GenImgsMapper {
     @Select("SELECT " + ATTEMPT_COLUMNS + " FROM attempts WHERE id = #{id}")
     AttemptEntity findAttempt(@Param("id") String id);
 
+    /**
+     * 原子分配下一个 attempt 序号：attempt_count 自增 1。
+     * 并发重试各自推进计数，配合"取回值 > 0 即本次分配值"的校验避免序号冲突；
+     * 返回影响行数为 0 表示 Thread 不存在。分配值由调用方在事务内回读确认。
+     */
+    @Update("""
+            UPDATE threads
+            SET attempt_count = attempt_count + 1, updated_at = CURRENT_TIMESTAMP(3)
+            WHERE id = #{threadId}
+            """)
+    int incrementAttemptCount(@Param("threadId") String threadId);
+
     @Select("SELECT " + ATTEMPT_COLUMNS + " FROM attempts WHERE thread_id = #{threadId} ORDER BY attempt_no DESC LIMIT #{limit} OFFSET #{offset}")
     List<AttemptEntity> findAttemptsByThread(@Param("threadId") String threadId, @Param("limit") int limit, @Param("offset") int offset);
 

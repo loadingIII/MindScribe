@@ -77,4 +77,23 @@ public class OssStorageUtil {
         Date expiration = new Date(System.currentTimeMillis() + expireSeconds * 1000L);
         return client.generatePresignedUrl(bucket, objectName, expiration).toString();
     }
+
+    /**
+     * 删除本工具上传的对象；供扣费失败等场景清理孤儿文件，删除失败仅告警不抛出，
+     * 避免影响主流程（残留对象可由运维定期清理）。
+     */
+    public void deleteQuietly(String url) {
+        if (url == null || url.isBlank()) return;
+        try {
+            String marker = "https://" + bucket + "." + endpointHost + "/";
+            if (!url.startsWith(marker)) {
+                log.warn("跳过删除非本 bucket 对象，url={}", url);
+                return;
+            }
+            client.deleteObject(bucket, url.substring(marker.length()).split("\\?", 2)[0]);
+            log.info("已删除 OSS 对象，bucket={} url={}", bucket, url);
+        } catch (RuntimeException e) {
+            log.warn("OSS 对象删除失败，url={}", url, e);
+        }
+    }
 }
