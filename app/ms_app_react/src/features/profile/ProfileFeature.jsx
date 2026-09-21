@@ -22,10 +22,9 @@ function formatTxTime(value) {
   }).replace(/\//g, "-");
 }
 
-/** 个人中心业务组件：账户概览、隐私设置与版权说明三个页签。 */
+/** 个人中心业务组件：账户概览卡片与近期算力记录。 */
 export default function ProfilePage() {
-  const { credits, settings, setSettings, user, updateDisplayName, uploadAvatar, refreshBalance, setToast } = useStore();
-  const [tab, setTab] = useState("概览");
+  const { credits, setToast, user, updateDisplayName, uploadAvatar } = useStore();
   // 积分流水：进入页面时从后端拉取真实记录。
   const [entries, setEntries] = useState([]);
   const [entriesLoading, setEntriesLoading] = useState(true);
@@ -91,81 +90,62 @@ export default function ProfilePage() {
   }
 
   return <section className="content-page profile-page">
-    <header className="page-heading"><div><h1>我的账户</h1><p>算力、权限与记录。</p></div></header>
-    <div className="profile-tabs">{["概览", "隐私设置", "版权说明"].map((item) => <button className={tab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{item}</button>)}</div>
-    {tab === "概览" && <>
-      <section className="account-lead">
-        <div className="account-person">
-          <button
-            type="button"
-            className="avatar-edit"
-            title={uploadingAvatar ? "正在上传头像…" : "更换头像"}
-            disabled={uploadingAvatar}
-            onClick={() => avatarInputRef.current?.click()}
-          >
-            <img src={avatarUrl || image("creator-avatar", 180, 180)} alt="我的头像" />
-            <span className="avatar-edit-mask"><Camera size={15} />{uploadingAvatar ? "上传中" : "更换"}</span>
-          </button>
-          <input ref={avatarInputRef} type="file" accept="image/*" hidden onChange={handleAvatarChange} />
-          <div>
-            <span>创作者</span>
-            {editing
-              ? <div className="nickname-editor">
-                <input
-                  autoFocus
-                  value={name}
-                  maxLength={100}
-                  onChange={(event) => setName(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === "Enter") saveName(); if (event.key === "Escape") setEditing(false); }}
-                  aria-label="修改昵称"
-                />
-                <button type="button" onClick={saveName} disabled={savingName || !name.trim()} title="保存">{savingName ? "…" : <Check size={15} />}</button>
-                <button type="button" onClick={() => setEditing(false)} title="取消">✕</button>
-              </div>
-              : <h2>{displayName}<button type="button" className="nickname-edit-btn" title="修改昵称" onClick={() => { setName(displayName); setEditing(true); }}><Pencil size={13} /></button></h2>}
-            <p>{user?.email || "—"}</p>
-          </div>
+    <header className="page-heading">
+      <div>
+        <h1>我的账户</h1>
+        <p>算力与记录。</p>
+      </div>
+    </header>
+    <section className="account-lead">
+      <div className="account-person">
+        <button
+          type="button"
+          className="avatar-edit"
+          title={uploadingAvatar ? "正在上传头像…" : "更换头像"}
+          disabled={uploadingAvatar}
+          onClick={() => avatarInputRef.current?.click()}
+        >
+          <img src={avatarUrl || image("creator-avatar", 180, 180)} alt="我的头像" />
+          <span className="avatar-edit-mask"><Camera size={15} />{uploadingAvatar ? "上传中" : "更换"}</span>
+        </button>
+        <input ref={avatarInputRef} type="file" accept="image/*" hidden onChange={handleAvatarChange} />
+        <div>
+          <span>创作者</span>
+          {editing
+            ? <div className="nickname-editor">
+              <input
+                autoFocus
+                value={name}
+                maxLength={100}
+                onChange={(event) => setName(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") saveName(); if (event.key === "Escape") setEditing(false); }}
+                aria-label="修改昵称"
+              />
+              <button type="button" onClick={saveName} disabled={savingName || !name.trim()} title="保存">{savingName ? "…" : <Check size={15} />}</button>
+              <button type="button" onClick={() => setEditing(false)} title="取消">✕</button>
+            </div>
+            : <h2>{displayName}<button type="button" className="nickname-edit-btn" title="修改昵称" onClick={() => { setName(displayName); setEditing(true); }}><Pencil size={13} /></button></h2>}
+          <p>{user?.email || "—"}</p>
         </div>
-        <div className="credit-balance">
-          <span><Zap size={12} /> 可用算力</span>
-          <strong>{credits.toLocaleString()}</strong>
-          <button
-            type="button"
-            onClick={async () => { await refreshBalance(); setToast("余额已刷新"); }}
-            title="重新获取最新余额"
-          >
-            刷新余额
-          </button>
-        </div>
-      </section>
-      <section className="profile-columns">
-        <div className="ledger">
-          <h2>近期算力记录</h2>
-          {entriesLoading && <p className="ledger-empty">正在加载算力记录…</p>}
-          {!entriesLoading && !entries.length && <p className="ledger-empty">暂无算力记录，创作后这里会展示每笔消耗与返还。</p>}
-          {entries.map((item) => {
-            const amount = Number(item.amount || 0);
-            const income = amount > 0;
-            return <div key={item.id}>
-              <span>{TX_TYPE_LABEL[item.type] || item.reason || item.type}</span>
-              <small>{formatTxTime(item.createdAt)}</small>
-              <b className={income ? "income" : ""}>{income ? "+" : ""}{amount}</b>
-            </div>;
-          })}
-        </div>
-        <div className="membership">
-          <span>MindScribe Plus</span>
-          <h2>更快的队列，<br />更大的想象空间。</h2>
-          <ul>
-            <li><Check size={15} />高速生成队列</li>
-            <li><Check size={15} />高清无水印导出</li>
-            <li><Check size={15} />100GB 创作存储空间</li>
-          </ul>
-          <button className="primary-action">查看 Plus 方案</button>
-        </div>
-      </section>
-    </>}
-    {tab === "隐私设置" && <section className="settings-panel">{[["public", "作品默认公开", "公开后可在灵感广场被发现"], ["remix", "允许他人复刻", "复刻时会带入你的模型参数"], ["revealPrompt", "展示提示词", "他人可查看并学习你的创作语言"], ["downloads", "允许下载", "社区用户可下载公开作品的带水印版本"]].map(([key, title, copy]) => <label className="toggle-row" key={key}><div><b>{title}</b><span>{copy}</span></div><input type="checkbox" checked={settings[key]} onChange={() => setSettings({ ...settings, [key]: !settings[key] })} /><i /></label>)}</section>}
-    {tab === "版权说明" && <section className="copyright-panel"><div><span>个人使用</span><h2>你生成的作品，属于你的创作记录。</h2><p>可用于个人社交分享、作品展示和非商业项目。含有他人素材的作品应获得相应授权。</p></div><div><span>商业使用</span><h2>请在商用前确认素材与模型条款。</h2><p>商业项目需遵守所选模型与参考素材的使用许可；平台不替代版权审查。</p></div><div><span>社区分享</span><h2>公开是邀请，不是放弃署名。</h2><p>你可随时关闭复刻、提示词展示和下载权限，历史收藏不会改变原作品归属。</p></div></section>}
+      </div>
+      <div className="credit-balance">
+        <span><Zap size={12} /> 可用算力</span>
+        <strong>{credits.toLocaleString()}</strong>
+      </div>
+    </section>
+    <section className="ledger">
+      <h2>近期算力记录</h2>
+      {entriesLoading && <p className="ledger-empty">正在加载算力记录…</p>}
+      {!entriesLoading && !entries.length && <p className="ledger-empty">暂无算力记录，创作后这里会展示每笔消耗与返还。</p>}
+      {entries.map((item) => {
+        const amount = Number(item.amount || 0);
+        const income = amount > 0;
+        return <div key={item.id}>
+          <span>{TX_TYPE_LABEL[item.type] || item.reason || item.type}</span>
+          <small>{formatTxTime(item.createdAt)}</small>
+          <b className={income ? "income" : ""}>{income ? "+" : ""}{amount}</b>
+        </div>;
+      })}
+    </section>
   </section>;
 }

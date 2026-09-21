@@ -406,6 +406,8 @@ export function CreatePage() {
   const canvasRef = useRef(null);
   // 任务失败时只提示一次，轮询不会重复弹出同一条错误。
   const failedAttemptRef = useRef("");
+  // 追踪输入法组合状态，避免在拼音输入过程中重建 DOM 导致光标跳动。
+  const composingRef = useRef(false);
 
   async function reloadTaskThreads() {
       try {
@@ -588,7 +590,13 @@ export function CreatePage() {
   }, [files, referencesRestored]);
   useEffect(() => {
     const editor = richPromptRef.current;
-    if (editor && editorPromptText(editor) !== prompt) renderPromptContent(editor, prompt, files);
+    if (!editor) return;
+    const currentText = editorPromptText(editor);
+    const needsRender = currentText !== prompt || (files.length > 0 && !editor.querySelector('.mention-chip'));
+    // 输入法组合期间跳过 DOM 重建，避免打断拼音输入。
+    if (!composingRef.current && needsRender) {
+      renderPromptContent(editor, prompt, files);
+    }
   }, [prompt, files]);
 
   useEffect(() => {
@@ -924,18 +932,36 @@ export function CreatePage() {
     editor.focus();
     const selection = window.getSelection();
     if (!selection?.rangeCount) return;
-    const range = selection.getRangeAt(0);
-    const node = range.startContainer;
-    const text = node.nodeType === Node.TEXT_NODE ? node.textContent : "";
-    const before = text.slice(0, range.startOffset);
-    const atIndex = before.lastIndexOf("@");
-    if (atIndex >= 0 && node.nodeType === Node.TEXT_NODE) {
-      range.setStart(node, atIndex);
-      range.deleteContents();
+    let range = selection.getRangeAt(0);
+    // 遍历所有文本节点，找到最后一个独立的 @ 并删除。
+    let lastAtNode = null;
+    let lastAtOffset = -1;
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+    let textNode;
+    while ((textNode = walker.nextNode())) {
+      const idx = textNode.textContent.lastIndexOf("@");
+      if (idx >= 0) {
+        lastAtNode = textNode;
+        lastAtOffset = idx;
+      }
+    }
+    if (lastAtNode && lastAtOffset >= 0) {
+      const atRange = document.createRange();
+      atRange.setStart(lastAtNode, lastAtOffset);
+      atRange.setEnd(lastAtNode, lastAtOffset + 1);
+      atRange.deleteContents();
+      range = document.createRange();
+      range.setStart(lastAtNode, lastAtOffset);
+      range.collapse(true);
     }
     const chip = createMentionChip(file);
     range.insertNode(chip);
-    range.setStartAfter(chip); range.collapse(true);
+    // 在 chip 后插入零宽空格，确保光标有文本节点停留，避免输入法闪烁。
+    const spacer = document.createTextNode("\u200B");
+    range.setStartAfter(chip);
+    range.insertNode(spacer);
+    range.setStart(spacer, 1);
+    range.collapse(true);
     selection.removeAllRanges(); selection.addRange(range);
     setMentionOpen(false);
     syncRichPrompt();
@@ -1008,10 +1034,10 @@ export function CreatePage() {
         <div className="control-scroll-area">
         <div className="control-title"><span>参考图</span><small>可选 · 最多 4 张</small></div>
         <div className={`reference-strip ${files.length ? "has-files" : "empty"}`} onDragOver={(event) => !referencesLocked && event.preventDefault()} onDrop={(event) => !referencesLocked && dropReferences(event)}>{files.map((item) => <div className="reference-item" key={item.id}><img src={item.url} alt={item.file.name} /><div className="reference-caption"><span>{item.file.name}</span>{!referencesLocked && <button onClick={() => removeReference(item.id)} title="移除参考图"><X size={13} /></button>}</div></div>)}{files.length < 4 && !referencesLocked && <label className="reference-add"><ImagePlus size={24} /><div><b>{files.length ? "继续添加" : "添加参考图"}</b><small>{files.length ? `${files.length}/4 张` : "点击或拖拽图片到这里"}</small></div><input type="file" accept="image/*" multiple onChange={(event) => addReferences(event.target.files)} /></label>}</div>
-        <div className="prompt-editor"><div className="prompt-editor-head"><span>你的构想</span><div><small className="prompt-hint">输入 @ 关联参考图</small><button className="prompt-builder-trigger" type="button" onClick={() => navigate("/create/prompt-builder")} title="构建提示词"><Sparkles size={14} /><span>构建提示词</span></button></div></div><div ref={richPromptRef} className="rich-prompt" contentEditable suppressContentEditableWarning onInput={syncRichPrompt} onKeyDown={handleRichPromptKeyDown} data-placeholder="写下你的创作构想…" />{mentionOpen && mentionCandidates.length > 0 && <div className="mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择，Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>{referenceLabel(item.file.name)}</span><kbd>{index + 1}</kbd></button>)}</div>}<small className="prompt-count">{prompt.length}/5000</small></div>
+        <div className="prompt-editor"><div className="prompt-editor-head"><span>你的构想</span><div><small className="prompt-hint">输入 @ 关联参考图</small><button className="prompt-builder-trigger" type="button" onClick={() => navigate("/create/prompt-builder?from=create")} title="构建提示词"><Sparkles size={14} /><span>构建提示词</span></button></div></div><div ref={richPromptRef} className="rich-prompt" contentEditable suppressContentEditableWarning onInput={syncRichPrompt} onKeyDown={handleRichPromptKeyDown} onCompositionStart={() => { composingRef.current = true; }} onCompositionEnd={() => { setTimeout(() => { composingRef.current = false; }, 100); }} data-placeholder="写下你的创作构想…" />{mentionOpen && mentionCandidates.length > 0 && <div className="mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择,Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>{referenceLabel(item.file.name)}</span><kbd>{index + 1}</kbd></button>)}</div>}<small className="prompt-count">{prompt.length}/5000</small></div>
         <div className="control-fields"><SelectField label="模型" value={draft.model || "gpt-image-2"} options={["gpt-image-2"]} onChange={(value) => setDraft({ ...draft, model: value })} /><SelectField label="尺寸" value={normalizeSize(draft.size)} options={GPT_IMAGE_SIZE_OPTIONS} onChange={(value) => setDraft({ ...draft, size: value })} /><SelectField label="质量" value={normalizeQuality(draft.quality)} options={[{ value: "auto", label: "自动" }, { value: "low", label: "低" }, { value: "medium", label: "中" }, { value: "high", label: "高" }]} onChange={(value) => setDraft({ ...draft, quality: value })} /><SelectField label="数量" value="1" options={["1"]} disabled /></div>
         </div>
-        <div className="control-footer"><button className="plain-button" type="button" onClick={() => setAdvancedOpen(true)}><Settings2 size={15} />高级参数</button><button className="create-button" onClick={startGeneration} disabled={!["idle", "failed", "done"].includes(status) || !prompt.trim()}><WandSparkles size={17} />{status === "idle" || status === "failed" || status === "done" ? (status === "failed" ? "重试" : status === "done" ? "重新生成" : "开始创作") : status === "queued" ? "待生成" : "生成中"}</button></div>
+        <div className="control-footer"><button className="plain-button is-pending" type="button" title="该功能暂未开放" onClick={() => setToast("高级参数待开发…")}><Settings2 size={15} />高级参数</button><button className="create-button" onClick={startGeneration} disabled={!["idle", "failed", "done"].includes(status) || !prompt.trim()}><WandSparkles size={17} />{status === "idle" || status === "failed" || status === "done" ? (status === "failed" ? "重试" : status === "done" ? "重新生成" : "开始创作") : status === "queued" ? "待生成" : "生成中"}</button></div>
       </section>
       {/* 标签栏：独立于结果显示模块（深色画布）的浅色卡片，固定显示在画布上方。 */}
       <div className="canvas-column">
@@ -1121,6 +1147,7 @@ function AttemptDrawer({ thread, width, onResize, onClose, onRetry, onSelectAtte
 function PromptFullscreen({ value, files, onChange, onClose }) {
   // 全屏编辑器沿用页面内的 @ 参考图关联格式，避免长提示词编辑时丢失该能力。
   const editorRef = useRef(null);
+  const composingRef = useRef(false);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -1128,7 +1155,10 @@ function PromptFullscreen({ value, files, onChange, onClose }) {
 
   useEffect(() => {
     const editor = editorRef.current;
-    if (editor && editorPromptText(editor) !== value) renderPromptContent(editor, value, files);
+    // 输入法组合期间跳过 DOM 重建，避免打断拼音输入。
+    if (editor && !composingRef.current && editorPromptText(editor) !== value) {
+      renderPromptContent(editor, value, files);
+    }
   }, [value, files]);
 
   function updateMention() {
@@ -1153,16 +1183,35 @@ function PromptFullscreen({ value, files, onChange, onClose }) {
     const editor = editorRef.current;
     const selection = window.getSelection();
     if (!editor || !selection?.rangeCount) return;
-    const range = selection.getRangeAt(0);
-    const node = range.startContainer;
-    const text = node.nodeType === Node.TEXT_NODE ? node.textContent : "";
-    const atIndex = text.slice(0, range.startOffset).lastIndexOf("@");
-    if (atIndex < 0 || node.nodeType !== Node.TEXT_NODE) return;
-    range.setStart(node, atIndex);
-    range.deleteContents();
+    let range = selection.getRangeAt(0);
+    // 遍历所有文本节点，找到最后一个独立的 @ 并删除。
+    let lastAtNode = null;
+    let lastAtOffset = -1;
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+    let textNode;
+    while ((textNode = walker.nextNode())) {
+      const idx = textNode.textContent.lastIndexOf("@");
+      if (idx >= 0) {
+        lastAtNode = textNode;
+        lastAtOffset = idx;
+      }
+    }
+    if (lastAtNode && lastAtOffset >= 0) {
+      const atRange = document.createRange();
+      atRange.setStart(lastAtNode, lastAtOffset);
+      atRange.setEnd(lastAtNode, lastAtOffset + 1);
+      atRange.deleteContents();
+      range = document.createRange();
+      range.setStart(lastAtNode, lastAtOffset);
+      range.collapse(true);
+    }
     const chip = createMentionChip(file);
     range.insertNode(chip);
+    // 在 chip 后插入零宽空格，确保光标有文本节点停留，避免输入法闪烁。
+    const spacer = document.createTextNode("\u200B");
     range.setStartAfter(chip);
+    range.insertNode(spacer);
+    range.setStart(spacer, 1);
     range.collapse(true);
     selection.removeAllRanges();
     selection.addRange(range);
@@ -1191,7 +1240,7 @@ function PromptFullscreen({ value, files, onChange, onClose }) {
     }
   }
 
-  return <div className="prompt-fullscreen" role="dialog" aria-modal="true"><div className="prompt-fullscreen-panel"><header><div><span>提示词编辑</span><small>{value.length}/5000</small></div><button type="button" onClick={onClose} title="关闭全屏"><X size={19} /></button></header><div className="prompt-fullscreen-editor"><div ref={editorRef} className="fullscreen-rich-prompt" contentEditable suppressContentEditableWarning onInput={syncFullscreenPrompt} onKeyDown={handleKeyDown} data-placeholder="写下你的创作构想…" autoFocus />{mentionOpen && mentionCandidates.length > 0 && <div className="fullscreen-mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择，Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>{referenceLabel(item.file.name)}</span><kbd>{index + 1}</kbd></button>)}</div>}</div><footer><span>输入 @ 可关联参考图，支持长提示词编辑。</span><button type="button" className="primary-action" onClick={onClose}>完成</button></footer></div></div>;
+  return <div className="prompt-fullscreen" role="dialog" aria-modal="true"><div className="prompt-fullscreen-panel"><header><div><span>提示词编辑</span><small>{value.length}/5000</small></div><button type="button" onClick={onClose} title="关闭全屏"><X size={19} /></button></header><div className="prompt-fullscreen-editor"><div ref={editorRef} className="fullscreen-rich-prompt" contentEditable suppressContentEditableWarning onInput={syncFullscreenPrompt} onKeyDown={handleKeyDown} onCompositionStart={() => { composingRef.current = true; }} onCompositionEnd={() => { setTimeout(() => { composingRef.current = false; }, 100); }} data-placeholder="写下你的创作构想…" autoFocus />{mentionOpen && mentionCandidates.length > 0 && <div className="fullscreen-mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择,Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>{referenceLabel(item.file.name)}</span><kbd>{index + 1}</kbd></button>)}</div>}</div><footer><span>输入 @ 可关联参考图，支持长提示词编辑。</span><button type="button" className="primary-action" onClick={onClose}>完成</button></footer></div></div>;
 }
 
 function getPromptExcerpt(prompt, maxLength = 96) {

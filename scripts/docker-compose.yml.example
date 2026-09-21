@@ -1,0 +1,171 @@
+# MindScribe 低内存部署编排（2 核 2G 服务器专用）。
+# 与 docker-compose.yml 的差异：
+#   1. 为每个容器增加 mem_limit 内存上限，防止单个容器失控拖垮整机；
+#   2. MySQL 关闭 performance_schema 并压缩 InnoDB 缓冲池，节省 200~300 MB；
+#   3. Redis 限制最大内存 64 MB；
+#   4. Java 后端通过 JAVA_TOOL_OPTIONS 限制 JVM 堆大小，防止吃掉 MySQL 的内存。
+#
+# 使用方法（二选一）：
+#   A. 直接使用本文件：docker compose -f docker-compose.yml.example up -d
+#   B. 覆盖原文件：备份 docker-compose.yml 后，复制本文件为 docker-compose.yml
+#      cp docker-compose.yml.example docker-compose.yml
+#
+# 2 核 2G 服务器的重要提示：
+#   - 不要在服务器上执行 docker compose up --build：
+#     Java 后端 Maven 构建与前端 Vite 构建的内存峰值都会超过 1 GB，极易 OOM。
+#     请在本地或 CI 构建好镜像（docker build / 推送到镜像仓库），
+#     服务器上只执行 docker compose pull + up（需删除或注释 build 段并修改 image 为仓库地址）。
+#   - 建议先挂载 2G swap 兜底（fallocate -l 2G /swapfile && chmod 600 /swapfile
+#     && mkswap /swapfile && swapon /swapfile），避免偶发峰值直接触发 OOM killer。
+name: mindscribe
+
+services:
+  # ---------- MySQL 8.0：业务数据库，自动导入 mindscribe 库 ----------
+  mysql:
+    image: mysql:8.0
+    container_name: mindscribe-mysql
+    restart: unless-stopped
+    # 低内存参数：关闭 performance_schema、压缩缓冲池、限制连接数。
+    command:
+      - --performance-schema=off
+      - --innodb-buffer-pool-size=64M
+      - --max-connections=50
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      TZ: Asia/Shanghai
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # 首次初始化时导入表结构与现有数据（仅数据卷为空时执行一次）
+      - ./sql/mindscribe.sql:/docker-entrypoint-initdb.d/mindscribe.sql:ro
+    # 内存上限 512M：缓冲池 64M + 连接线程 + 元数据，足够小型业务使用。
+    mem_limit: 512m
+    healthcheck:
+      # 通过 mysqladmin ping 探测服务可用性（密码在 compose 解析时注入）
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ---------- Redis 7：缓存与会话存储 ----------
+  redis:
+    image: redis:7-alpine
+    container_name: mindscribe-redis
+    restart: unless-stopped
+    # 限制最大内存 64 MB；保持默认 noeviction 策略，写满时报错而非静默驱逐会话。
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --maxmemory
+      - 64mb
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    mem_limit: 96m
+    healthcheck:
+      # 通过 PING 探测服务可用性（密码在 compose 解析时注入）
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a ${REDIS_PASSWORD} ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---------- 图片生成服务（FastAPI）：Java 后端的下游依赖 ----------
+  # 实际的图片生成由外部 OpenAI 兼容 API 完成，容器本身不做推理，内存占用很小。
+  infer:
+    build:
+      context: ../infers/gen_img_v1_py
+      # 公共模块 libs 位于仓库根目录，作为额外构建上下文引入镜像（不扩大主上下文体积）。
+      additional_contexts:
+        libs: ../libs
+    image: mindscribe/gen-img:latest
+    container_name: mindscribe-infer
+    restart: unless-stopped
+    environment:
+      # OpenAI 兼容服务与 OSS 配置（config.yml 中以 ${VAR} 占位符读取）
+      OPENAI_API_BASE: ${OPENAI_API_BASE}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OSS_ENDPOINT: ${OSS_ENDPOINT_PYTHON}
+      OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID}
+      OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET}
+      OSS_BUCKET_NAME: ${OSS_BUCKET_NAME}
+      OSS_REGION: ${OSS_REGION}
+    ports:
+      - "${INFER_PORT:-8000}:8000"
+    # 内存上限 256M：Python + FastAPI 常驻约 100~150 MB，留出余量。
+    mem_limit: 256m
+    healthcheck:
+      # 通过 openapi.json 探测服务可用性
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/openapi.json', timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ---------- Java 后端（Spring Boot）：核心业务 API ----------
+  backend:
+    build:
+      context: ../app/ms_backend_java
+    image: mindscribe/backend:latest
+    container_name: mindscribe-backend
+    restart: unless-stopped
+    environment:
+      # 数据库：容器内部通过服务名 mysql 访问，端口固定 3306
+      MYSQL_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      MYSQL_USERNAME: ${MYSQL_USERNAME}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      # Redis：容器内部通过服务名 redis 访问，端口固定 6379
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_DATABASE: ${REDIS_DATABASE}
+      # 提示词优化 LLM
+      LLM_API_URL: ${LLM_API_URL}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_API_NAME: ${LLM_API_NAME}
+      # OSS（Java SDK 的 Endpoint 需带协议前缀）
+      OSS_ENDPOINT: ${OSS_ENDPOINT}
+      OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID}
+      OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET}
+      OSS_BUCKET_NAME: ${OSS_BUCKET_NAME}
+      OSS_URL_EXPIRE_SECONDS: ${OSS_URL_EXPIRE_SECONDS:-3600}
+      # JWT
+      JWT_SECRET: ${JWT_SECRET}
+      # 下游图片生成服务（容器内部通过服务名 infer 访问，端口固定 8000）
+      IMAGE_GENERATION_BASE_URL: http://infer
+      IMAGE_GENERATION_PORT: "8000"
+      # 低内存关键项：限制 JVM 堆与元空间上限，防止无界增长挤压同机的 MySQL。
+      # 堆 512M + 元空间 128M + 线程栈等，峰值约 700 MB，与 mem_limit 匹配。
+      JAVA_TOOL_OPTIONS: -Xms128m -Xmx512m -XX:MaxMetaspaceSize=128m
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    mem_limit: 768m
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      infer:
+        condition: service_healthy
+
+  # ---------- 前端（React + Nginx）：托管静态资源并反代后端 API ----------
+  frontend:
+    build:
+      context: ../app/ms_app_react
+    image: mindscribe/frontend:latest
+    container_name: mindscribe-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8081}:80"
+    # Nginx 托管静态资源常驻仅约 10 MB，64M 上限绰绰有余。
+    mem_limit: 64m
+    depends_on:
+      - backend
+
+volumes:
+  mysql-data:
+  redis-data:

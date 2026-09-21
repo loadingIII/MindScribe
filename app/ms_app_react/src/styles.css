@@ -759,17 +759,17 @@ img {
 .search-box input::placeholder {
   color: var(--neo-text-muted);
 }
-.filter-row,.category-row,.library-tabs,.profile-tabs {
+.filter-row,.category-row,.library-tabs {
   display:flex;
   gap:6px;
 }
-.filter-row button,.category-row button,.library-tabs button,.profile-tabs button {
+.filter-row button,.category-row button,.library-tabs button {
   padding:8px 10px;
   color:var(--mist);
   background:transparent;
   font-size:11px;
 }
-.filter-row button.active,.library-tabs button.active,.profile-tabs button.active {
+.filter-row button.active,.library-tabs button.active {
   color:var(--ink);
   background:var(--paper);
 }
@@ -1763,13 +1763,6 @@ img {
   background:var(--lime);
 }
 /* 个人中心 */
-.profile-tabs {
-  margin-bottom:25px;
-  border-bottom:1px solid var(--line);
-}
-.profile-tabs button {
-  padding:10px 12px;
-}
 .account-lead {
   display:flex;
   align-items:stretch;
@@ -1805,6 +1798,9 @@ img {
   font-size:11px;
 }
 .credit-balance {
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
   min-width:260px;
   padding-left:30px;
   border-left:1px solid var(--line);
@@ -1815,74 +1811,34 @@ img {
   color:var(--lime);
   font:600 42px var(--serif);
 }
-.credit-balance button {
-  display:flex;
-  align-items:center;
-  gap:4px;
-  padding:0;
-  margin-top:15px;
-  color:var(--lime);
-  background:transparent;
-  font-size:11px;
-}
-.profile-columns {
-  display:grid;
-  grid-template-columns:1.1fr .9fr;
-  gap:24px;
-}
-.ledger,.membership {
+.ledger {
   padding:25px;
   border:1px solid var(--line);
 }
-.ledger h2,.membership h2 {
+.ledger h2 {
   margin:0 0 19px;
   font:600 23px var(--serif);
 }
 .ledger>div {
   display:grid;
-  grid-template-columns:1fr 110px 50px;
+  grid-template-columns:minmax(0,1fr) 180px 80px;
   align-items:center;
   padding:13px 0;
   border-top:1px solid var(--line);
   font-size:12px;
 }
 .ledger small {
+  justify-self:end;
   color:var(--mist);
-  font-size:10px;
+  font-size:11px;
 }
 .ledger b {
   text-align:right;
   color:var(--coral);
-  font:12px var(--mono);
+  font:13px var(--mono);
 }
 .ledger b.income {
   color:var(--lime);
-}
-.membership {
-  background:var(--paper);
-  color:var(--ink);
-}
-.membership>span {
-  font:10px var(--mono);
-}
-.membership h2 {
-  margin-top:28px;
-}
-.membership ul {
-  display:grid;
-  gap:9px;
-  margin:18px 0 25px;
-  padding:0;
-  list-style:none;
-  font-size:11px;
-}
-.membership li {
-  display:flex;
-  align-items:center;
-  gap:7px;
-}
-.membership li svg {
-  color:#68721e;
 }
 .settings-panel {
   max-width:800px;
@@ -2085,8 +2041,8 @@ img {
 .login-panel {
   position: relative;
   z-index: 1;
-  width: min(450px, calc(100vw - 48px));
-  padding: 36px 42px 28px;
+  width: min(500px, calc(100vw - 48px));
+  padding: 40px 46px 30px;
   border: 1px solid rgba(255, 255, 255, .65);
   background: linear-gradient(160deg, #F3F4F8 0%, var(--neo-surface) 55%, #E9EBF2 100%);
   box-shadow: var(--neo-shadow-deep);
@@ -2117,92 +2073,109 @@ img {
   font-style: normal;
 }
 .login-copy {
-  margin: 34px 0 26px;
+  margin: 32px 0 26px;
 }
 .login-copy small {
   color: var(--neo-primary);
   font: 10px var(--mono);
   letter-spacing: .13em;
 }
+/* 标题保持单行：字号随面板宽度收敛，避免"把灵感，交给时间。"被折行。 */
 .login-copy h1 {
   margin: 12px 0 11px;
-  font: 600 clamp(33px, 4.6vw, 46px)/1.16 var(--serif);
-  letter-spacing: -.05em;
   color: var(--neo-text);
+  font: 600 clamp(28px, 4.2vw, 38px)/1.2 var(--serif);
+  letter-spacing: -.04em;
+  white-space: nowrap;
 }
 .login-copy h1 em {
-  color: var(--neo-primary);
+  color: var(--neo-accent-dark);
   font-style: normal;
 }
 .login-copy p {
-  max-width: 310px;
+  max-width: 360px;
   margin: 0;
   color: var(--neo-text-secondary);
-  font-size: 12px;
+  font-size: 12.5px;
   line-height: 1.8;
 }
 .login-form {
   display:grid;
-  gap:15px;
+  gap:16px;
 }
 .login-form label {
   display:grid;
   gap:7px;
-  color:var(--mist);
-  font:10px var(--mono);
-  letter-spacing:.05em;
+  color: var(--neo-text-secondary);
+  font: 600 11px var(--sans);
+  letter-spacing: .02em;
 }
 /* 标签行内的小号规则提示，如密码的"8-64 位"。 */
 .login-form label .field-hint {
   margin-left: 6px;
   color: var(--neo-text-muted);
-  font: 10px var(--sans);
+  font: 400 10px var(--sans);
   letter-spacing: 0;
 }
+/* 输入框统一采用"白底 + 浅边框 + 柔投影"，聚焦时描边与光圈同步点亮。 */
 .login-form input {
   width: 100%;
-  height: 47px;
-  padding: 0 16px;
+  height: 46px;
+  padding: 0 15px;
   color: var(--neo-text);
-  border: 1px solid transparent;
-  border-radius: 15px;
+  border: 1px solid #E2E5EE;
+  border-radius: 13px;
   outline: 0;
-  background: #F4F5F9;
-  box-shadow: var(--neo-shadow-pressed);
+  background: #FBFBFD;
+  box-shadow: 0 2px 6px rgba(163, 177, 198, .16);
   font: 13px var(--sans);
-  transition: border-color .18s ease, box-shadow .18s ease;
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
 }
 .login-form input:focus {
-  border-color: rgba(136, 153, 204, .55);
-  background: #F7F8FB;
-  box-shadow: var(--neo-shadow-inset-light), 0 0 0 3px rgba(168, 184, 232, .16);
+  border-color: var(--neo-accent-dark);
+  background: #FFFFFF;
+  box-shadow: 0 2px 6px rgba(163, 177, 198, .16), 0 0 0 3px rgba(139, 157, 217, .18);
   outline: none;
 }
 .login-form input::placeholder {
   color: var(--neo-text-muted);
 }
+/* Chrome/Edge 自动填充会用浏览器默认底色盖掉自绘样式，用同色 inset 阴影压回统一底色。 */
+.login-form input:-webkit-autofill,
+.login-password input:-webkit-autofill,
+.login-code input:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px #FBFBFD inset;
+  -webkit-text-fill-color: var(--neo-text);
+  caret-color: var(--neo-text);
+  transition: background-color 5000s ease-in-out 0s;
+}
 .login-password {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
+  height: 46px;
   padding: 0 15px;
-  border: 1px solid transparent;
-  border-radius: 15px;
-  background: #F4F5F9;
-  box-shadow: var(--neo-shadow-pressed);
-  transition: border-color .18s ease, box-shadow .18s ease;
+  border: 1px solid #E2E5EE;
+  border-radius: 13px;
+  background: #FBFBFD;
+  box-shadow: 0 2px 6px rgba(163, 177, 198, .16);
+  overflow: hidden;
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
 }
 .login-password:focus-within {
-  border-color: rgba(136, 153, 204, .55);
-  background: #F7F8FB;
-  box-shadow: var(--neo-shadow-inset-light), 0 0 0 3px rgba(168, 184, 232, .16);
+  border-color: var(--neo-accent-dark);
+  background: #FFFFFF;
+  box-shadow: 0 2px 6px rgba(163, 177, 198, .16), 0 0 0 3px rgba(139, 157, 217, .18);
 }
 .login-password svg {
+  flex: 0 0 auto;
   color: var(--neo-text-muted);
 }
 .login-password input {
+  height: 100%;
   padding: 0;
   border: none;
+  border-radius: 0;
   background: transparent;
   box-shadow: none;
 }
@@ -2215,25 +2188,31 @@ img {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 6px 0 15px;
-  border: 1px solid transparent;
-  border-radius: 15px;
-  background: #F4F5F9;
-  box-shadow: var(--neo-shadow-pressed);
-  transition: border-color .18s ease, box-shadow .18s ease;
+  height: 46px;
+  padding: 0 5px 0 15px;
+  border: 1px solid #E2E5EE;
+  border-radius: 13px;
+  background: #FBFBFD;
+  box-shadow: 0 2px 6px rgba(163, 177, 198, .16);
+  overflow: hidden;
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
 }
 .login-code:focus-within {
-  border-color: rgba(136, 153, 204, .55);
-  background: #F7F8FB;
-  box-shadow: var(--neo-shadow-inset-light), 0 0 0 3px rgba(168, 184, 232, .16);
+  border-color: var(--neo-accent-dark);
+  background: #FFFFFF;
+  box-shadow: 0 2px 6px rgba(163, 177, 198, .16), 0 0 0 3px rgba(139, 157, 217, .18);
 }
 .login-code input {
   flex: 1;
   min-width: 0;
+  height: 100%;
   padding: 0;
   background: transparent;
   box-shadow: none;
   border: none;
+  border-radius: 0;
+  font: 500 14px var(--mono);
+  letter-spacing: .12em;
 }
 .login-code input:focus {
   outline: none;
@@ -2241,29 +2220,31 @@ img {
 }
 .login-code button {
   flex: none;
-  padding: 12px 16px;
-  color: var(--neo-primary);
-  background: var(--neo-bg);
-  border-radius: 12px;
-  box-shadow: var(--neo-shadow-sm);
-  font: 10px var(--mono);
+  height: 36px;
+  padding: 0 14px;
+  color: var(--neo-accent-dark);
+  background: #FFFFFF;
+  border: 1px solid #E2E5EE;
+  border-radius: 10px;
+  font: 600 11px var(--sans);
   transition: all .2s;
 }
-.login-code button:hover {
-  box-shadow: var(--neo-shadow);
-  transform: translateY(-1px);
+.login-code button:hover:not(:disabled) {
+  color: #FFFFFF;
+  background: var(--neo-accent-dark);
+  border-color: var(--neo-accent-dark);
 }
 .login-code button:disabled {
   color: var(--neo-text-muted);
   cursor: wait;
-  box-shadow: var(--neo-shadow-pressed);
+  background: #F1F2F6;
 }
 .login-error {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: -4px 0 0;
-  padding: 9px 13px;
+  margin: -2px 0 0;
+  padding: 10px 13px;
   color:#a24a3b;
   background: rgba(211, 118, 98, .12);
   border-radius: 11px;
@@ -2274,16 +2255,17 @@ img {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 48px;
-  margin-top: 4px;
-  padding: 0 20px;
+  height: 48px;
+  margin-top: 6px;
+  padding: 0 18px;
   color: #FFFFFF;
   background: linear-gradient(135deg, var(--neo-accent) 0%, #C5C8F0 100%);
   border: none;
-  border-radius: 24px;
-  font-size: 12px;
+  border-radius: 14px;
+  font-size: 13px;
   font-weight: 700;
-  box-shadow: var(--neo-shadow-raised);
+  letter-spacing: .02em;
+  box-shadow: 0 8px 18px rgba(139, 157, 217, .35);
 }
 .login-submit:hover:not(:disabled) {
   box-shadow: var(--neo-shadow-hover);
@@ -2296,7 +2278,7 @@ img {
 .login-submit:disabled {
   cursor: wait;
   opacity: 0.6;
-  box-shadow: var(--neo-shadow-sm);
+  box-shadow: none;
 }
 .login-panel footer {
   margin-top:26px;
@@ -3361,14 +3343,14 @@ body {
 }
 .login-switch {
   display:block;
-  margin:22px auto 0;
+  margin:24px auto 0;
   padding:0;
-  color:#7b8926;
+  color: var(--neo-text-secondary);
   background:transparent;
-  font:10px var(--mono);
+  font: 500 12px var(--sans);
 }
 .login-switch:hover {
-  color:var(--ink);
+  color: var(--neo-accent-dark);
 }
 .canvas-tag-actions {
   display:flex;
@@ -3657,7 +3639,7 @@ body {
 .search-box input {
   color:var(--ink);
 }
-.filter-row,.category-row,.library-tabs,.profile-tabs {
+.filter-row,.category-row,.library-tabs {
   gap:6px;
 }
 .filter-row {
@@ -3665,12 +3647,12 @@ body {
   border-radius:13px;
   background:#e8e7df;
 }
-.filter-row button,.library-tabs button,.profile-tabs button {
+.filter-row button,.library-tabs button {
   border-radius:9px;
   color:var(--mist);
   font-weight:600;
 }
-.filter-row button.active,.library-tabs button.active,.profile-tabs button.active {
+.filter-row button.active,.library-tabs button.active {
   color:var(--ink);
   background:#fffdf8;
   box-shadow:0 2px 7px rgba(57,62,49,.08);
@@ -3805,7 +3787,7 @@ body {
   color:var(--ink);
 }
 /* 素材与作品 */
-.library-tabs,.profile-tabs {
+.library-tabs {
   width:max-content;
   padding:4px;
   border:0;
@@ -4012,7 +3994,7 @@ body {
   background:#fffdf8;
   box-shadow:0 10px 25px rgba(58,63,49,.06);
 }
-.account-person h2,.credit-balance strong,.ledger h2,.membership h2 {
+.account-person h2,.credit-balance strong,.ledger h2 {
   color:var(--ink);
 }
 .account-person span,.account-person p,.credit-balance>span,.credit-balance p {
@@ -4024,10 +4006,7 @@ body {
 .credit-balance strong {
   color:#71871d;
 }
-.credit-balance button {
-  color:#647918;
-}
-.ledger,.membership {
+.ledger {
   border:0;
   border-radius:20px;
   box-shadow:0 10px 25px rgba(58,63,49,.06);
@@ -4040,12 +4019,6 @@ body {
 }
 .ledger small {
   color:var(--mist);
-}
-.membership {
-  background:#dfe98f;
-}
-.membership li svg {
-  color:#607516;
 }
 .settings-panel {
   border-top-color:var(--line);
@@ -6735,4 +6708,16 @@ body {
 }
 .avatar-edit:disabled {
   cursor: wait;
+}
+
+/* 创作模块：功能暂未开放的按钮态（高级参数），保持可点击以弹出提示但视觉上弱化。 */
+.plain-button.is-pending {
+  opacity: .55;
+  cursor: not-allowed;
+}
+.plain-button.is-pending:hover {
+  box-shadow: var(--neo-shadow-raised);
+}
+.plain-button.is-pending:active {
+  box-shadow: var(--neo-shadow-raised);
 }
