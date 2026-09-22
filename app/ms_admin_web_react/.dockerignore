@@ -1,0 +1,4 @@
+# 本地依赖与构建产物不进入构建上下文
+node_modules/
+dist/
+.env

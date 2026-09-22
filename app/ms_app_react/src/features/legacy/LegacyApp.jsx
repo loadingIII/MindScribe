@@ -591,11 +591,78 @@ export function CreatePage() {
   useEffect(() => {
     const editor = richPromptRef.current;
     if (!editor) return;
+    
     const currentText = editorPromptText(editor);
     const needsRender = currentText !== prompt || (files.length > 0 && !editor.querySelector('.mention-chip'));
+    
     // 输入法组合期间跳过 DOM 重建，避免打断拼音输入。
-    if (!composingRef.current && needsRender) {
-      renderPromptContent(editor, prompt, files);
+    if (composingRef.current || !needsRender) return;
+    
+    // 保存光标位置：计算光标在整个编辑器文本中的绝对偏移量
+    const selection = window.getSelection();
+    let absoluteOffset = 0;
+    let hasCursor = false;
+    
+    if (selection && selection.rangeCount > 0 && editor.contains(selection.anchorNode)) {
+      hasCursor = true;
+      const range = selection.getRangeAt(0);
+      const walker = document.createTreeWalker(
+        editor,
+        NodeFilter.SHOW_TEXT,
+        null
+      );
+      
+      let textNode;
+      while ((textNode = walker.nextNode())) {
+        if (textNode === range.startContainer) {
+          absoluteOffset += range.startOffset;
+          break;
+        }
+        absoluteOffset += textNode.textContent.length;
+      }
+    }
+    
+    // 重建 DOM
+    renderPromptContent(editor, prompt, files);
+    
+    // 恢复光标位置
+    if (hasCursor) {
+      const newSelection = window.getSelection();
+      const walker = document.createTreeWalker(
+        editor,
+        NodeFilter.SHOW_TEXT,
+        null
+      );
+      
+      let textNode;
+      let currentOffset = 0;
+      let targetNode = null;
+      let targetOffset = 0;
+      
+      while ((textNode = walker.nextNode())) {
+        const nodeLength = textNode.textContent.length;
+        if (currentOffset + nodeLength >= absoluteOffset) {
+          targetNode = textNode;
+          targetOffset = absoluteOffset - currentOffset;
+          break;
+        }
+        currentOffset += nodeLength;
+      }
+      
+      // 恢复光标到计算出的位置
+      if (targetNode) {
+        try {
+          const newRange = document.createRange();
+          const safeOffset = Math.min(targetOffset, targetNode.textContent.length);
+          newRange.setStart(targetNode, safeOffset);
+          newRange.collapse(true);
+          newSelection.removeAllRanges();
+          newSelection.addRange(newRange);
+        } catch (error) {
+          // 光标恢复失败时静默处理，避免影响用户输入
+          console.warn("光标位置恢复失败:", error);
+        }
+      }
     }
   }, [prompt, files]);
 
@@ -616,18 +683,18 @@ export function CreatePage() {
   useEffect(() => {
     // 仅轮询当前选中的 Attempt，避免新任务回显旧 Attempt 的结果。
     if (!threadId || !attemptId || status === "done" || status === "failed") return undefined;
-    // 记录轮询开始时间，超过 90 秒未完成则自动标记为超时失败。
+    // 记录轮询开始时间，超过 120 秒未完成则自动标记为超时失败。
     const startTime = Date.now();
-    const TIMEOUT_MS = 90000;
+    const TIMEOUT_MS = 120000;
     const poll = async () => {
       try {
-        // 检查是否超时：超过 90 秒且状态还在运行中，标记为超时失败并停止轮询。
+        // 检查是否超时：超过 120 秒且状态还在运行中，标记为超时失败并停止轮询。
         const elapsed = Date.now() - startTime;
         if (elapsed > TIMEOUT_MS && (status === "queued" || status === "working")) {
           setStatus("failed");
           if (failedAttemptRef.current !== attemptId) {
             failedAttemptRef.current = attemptId;
-            setToast("生成超时：任务未在 90 秒内完成，请稍后重试");
+            setToast("生成超时：任务未在 120 秒内完成，请稍后重试");
           }
           return;
         }
@@ -889,6 +956,53 @@ export function CreatePage() {
       // 重试同样按预估口径预扣积分，展示本次消耗并同步余额。
       setLastCost(estimate ?? count * 12);
       refreshBalance();
+      
+      // 重试提交成功后 2 秒，立即查询一次状态，加快状态同步。
+      setTimeout(async () => {
+        try {
+          const statusResponse = await fetch(`/gen_imgs/threads/${id}`);
+          if (!statusResponse.ok) return;
+          const statusThread = await statusResponse.json();
+          const currentAttempt = (statusThread.attempts || []).find((item) => (
+            (item.attemptId || item.attempt_id || item.id) === latestAttempt?.id
+          ));
+          if (!currentAttempt) return;
+          
+          const imageUrls = currentAttempt.imageUrls || currentAttempt.image_urls || [];
+          const currentStatus = String(currentAttempt.status || "pending").toLowerCase();
+          const nextStatus = currentStatus === "succeeded"
+            ? "done"
+            : currentStatus === "failed" ? "failed" : "working";
+          setStatus(nextStatus);
+          
+          if (currentStatus === "failed" && currentAttempt.error) {
+            failedAttemptRef.current = latestAttempt?.id || "";
+            setToast(`生成失败：${currentAttempt.error}`);
+            refreshBalance();
+          }
+          
+          // 更新线程列表中的状态
+          setTaskThreads((items) => {
+            const refreshedItem = mapThread({ ...statusThread, referenceImages: existingThread?.references || [] }, existingThread?.title);
+            return items.map((item) => item.id === id ? refreshedItem : item);
+          });
+          
+          // 如果已经有结果图，立即更新
+          if (imageUrls.length > 0) {
+            const attemptNumber = currentAttempt.attemptNo ?? currentAttempt.attempt_no ?? 1;
+            const nextResults = imageUrls.map((url, index) => ({
+              id: `${latestAttempt?.id}-${index}`,
+              image: url,
+              title: `${mode} · ${index + 1}`,
+              attemptNumber
+            }));
+            setResults(nextResults);
+          }
+        } catch (error) {
+          // 2 秒后的查询失败不影响正常轮询，静默处理
+          console.warn("重试后状态查询失败:", error);
+        }
+      }, 2000);
     } catch (error) { setStatus("failed"); setToast(error.message); refreshBalance(); }
   }
 

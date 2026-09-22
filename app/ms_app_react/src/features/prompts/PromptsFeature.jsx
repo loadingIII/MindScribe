@@ -58,7 +58,7 @@ function normalizeTemplate(item) {
 
 /** 提示词库只使用服务端数据，避免页面加载时闪现本地示例。 */
 export default function PromptsFeature() {
-  const { setToast } = useStore();
+  const { setDraft, setToast } = useStore();
   const navigate = useNavigate();
   const [prompts, setPrompts] = useState([]);
   const [source, setSource] = useState("全部");
@@ -104,7 +104,9 @@ export default function PromptsFeature() {
 
   useEffect(() => {
     let active = true;
-    fetch("/prompt_templates?page=0&size=50", { credentials: "include" })
+    // no-store：绕过浏览器 HTTP 缓存（含历史上被缓存下来的 301 重定向），
+    // 否则旧缓存的 http:// 重定向会在本地拦截请求，导致提示词列表加载不出来。
+    fetch("/prompt_templates?page=0&size=50", { credentials: "include", cache: "no-store" })
       .then((response) => { if (!response.ok) throw new Error("提示词库加载失败"); return response.json(); })
       .then((items) => { if (active && Array.isArray(items)) { setPrompts(items.map(normalizeTemplate)); setLoadError(""); } })
       .catch(() => { if (active) { setPrompts([]); setLoadError("提示词库暂时无法连接，请稍后重试"); } })
@@ -180,6 +182,7 @@ export default function PromptsFeature() {
   }
 
   async function usePrompt(item) {
+    // 统计使用次数；仅用于计数，成败不影响套用。
     await fetch(`/prompt_templates/${item.id}/use`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userPrompt: item.prompt }) }).catch(() => {});
     clearCachedState([
       "create:files",
@@ -191,8 +194,12 @@ export default function PromptsFeature() {
       "create:taskName",
       "create:tagsCollapsed"
     ]);
+    // 套用必须用模板正文原文（userPromptTemplate）。
+    // item.prompt 是展示层剥离"标签: 值"行后的残文，正文含冒号的行会被误剥离，
+    // 用它套用会导致创作页拿到近乎空白的内容。
+    const fullPrompt = String(item.userPromptTemplate || item.prompt || "");
     setDraft({
-      prompt: item.prompt,
+      prompt: fullPrompt,
       tags: normalizeTags(item.tags).map((tag) => {
         const [key, ...rest] = tag.split(":");
         return { key: key.trim(), value: rest.join(":").trim() };

@@ -114,6 +114,9 @@ services:
     container_name: mindscribe-backend
     restart: unless-stopped
     environment:
+      # 固定时区为北京时间：LocalDateTime.now() 等取容器本地时间，
+      # 不设置时容器默认 UTC，会导致验证码记录等时间戳慢 8 小时。
+      TZ: Asia/Shanghai
       # 数据库：容器内部通过服务名 mysql 访问，端口固定 3306
       MYSQL_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
       MYSQL_USERNAME: ${MYSQL_USERNAME}
@@ -162,6 +165,19 @@ services:
     ports:
       - "${FRONTEND_PORT:-8081}:80"
     # Nginx 托管静态资源常驻仅约 10 MB，64M 上限绰绰有余。
+    mem_limit: 64m
+    depends_on:
+      - backend
+
+  # ---------- 管理端前端（React + Nginx）：独立的管理后台，反代后端 /auth /admin ----------
+  admin:
+    build:
+      context: ../app/ms_admin_web_react
+    image: mindscribe/admin:latest
+    container_name: mindscribe-admin
+    restart: unless-stopped
+    ports:
+      - "${ADMIN_PORT:-8082}:80"
     mem_limit: 64m
     depends_on:
       - backend
