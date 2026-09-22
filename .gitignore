@@ -52,3 +52,6 @@ exp/prompts_store_ui_demo/*
 
 
 .zcode/*
+
+# Docker 镜像 tar 包体积过大，不入库，仅保留在本地
+scripts/*.tar
