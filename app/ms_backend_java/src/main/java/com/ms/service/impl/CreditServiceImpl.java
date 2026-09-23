@@ -70,6 +70,9 @@ public class CreditServiceImpl implements CreditService {
             throw new IllegalStateException("返还失败：用户不存在或已被禁用，userId=" + userId);
         }
         Integer balance = creditMapper.findBalance(userId);
+        // 回写余额快照到已落库的 refund 行：insert 时的 balance_after 只是占位，
+        // 必须显式 UPDATE，否则管理端看到的"变动后余额"永远是插入时的 0。
+        creditMapper.updateBalanceAfter(refund.getId(), balance == null ? 0 : balance);
         refund.setBalanceAfter(balance == null ? 0 : balance);
         log.info("积分返还成功，userId={} attemptId={} amount={} balance={}",
                 userId, attemptId, amount, refund.getBalanceAfter());

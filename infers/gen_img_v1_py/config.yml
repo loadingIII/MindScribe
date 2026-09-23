@@ -5,7 +5,8 @@ api_key: ${OPENAI_API_KEY}
 
 # 图片理解（Vision）模型配置
 vision:
-  model: gpt-image-2
+  # model: gpt-image-2
+  model: ${GEN_IMG_MODEL}
 
 # 图片生成（Image Generation）模型配置
 image_generation:
