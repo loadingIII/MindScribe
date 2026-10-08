@@ -24,7 +24,7 @@ export function clearCachedState(keys) {
 }
 
 /**
- * 清空创作相关的本地持久化数据与内存缓存（不含按账号分键的图像解析草稿）。
+ * 清空创作相关的本地持久化数据与内存缓存（不含按账号分键的提示词构建器草稿）。
  * 用于账号切换或退出登录，避免下一个账号看到上一个账号的遗留数据。
  */
 export function clearWorkspaceStorage() {
