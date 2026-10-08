@@ -24,6 +24,11 @@ public interface UserMapper {
             + "FROM users WHERE id = #{userId} AND status = 'active' LIMIT 1")
     UserLoginEntity findActiveById(@Param("userId") String userId);
 
+    /** 按用户 ID 查询个人中心资料（注册时间、最近登录时间），不含密码哈希。 */
+    @Select("SELECT id, email, display_name AS displayName, created_at AS createdAt, last_login_at AS lastLoginAt "
+            + "FROM users WHERE id = #{userId} AND status = 'active' LIMIT 1")
+    com.ms.pojo.entity.UserProfileEntity findProfileById(@Param("userId") String userId);
+
     /** 更新用户昵称（display_name）；影响行数为 0 表示用户不存在或被禁用。 */
     @Update("UPDATE users SET display_name = #{displayName} WHERE id = #{userId} AND status = 'active'")
     int updateDisplayName(@Param("userId") String userId, @Param("displayName") String displayName);
@@ -35,6 +40,10 @@ public interface UserMapper {
     /** 更新用户头像地址（OSS 上的稳定对象 URL）。 */
     @Update("UPDATE users SET avatar_url = #{avatarUrl} WHERE id = #{userId} AND status = 'active'")
     int updateAvatarUrl(@Param("userId") String userId, @Param("avatarUrl") String avatarUrl);
+
+    /** 更新用户密码哈希（BCrypt）；影响行数为 0 表示用户不存在或被禁用。 */
+    @Update("UPDATE users SET password_hash = #{passwordHash} WHERE id = #{userId} AND status = 'active'")
+    int updatePassword(@Param("userId") String userId, @Param("passwordHash") String passwordHash);
 
     /** 统计指定邮箱的注册数量。 */
     @Select("SELECT COUNT(1) FROM users WHERE email = #{email}")

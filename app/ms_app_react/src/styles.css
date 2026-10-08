@@ -6309,6 +6309,309 @@ body {
   align-items: center;
   gap: 4px;
 }
+/* 个人中心：账户卡片元信息行（注册时间与上次登录）。 */
+.account-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px !important;
+}
+.account-meta-dot {
+  color: var(--mist);
+}
+/* 个人中心：创作统计卡。 */
+.account-stats {
+  margin-bottom: 24px;
+  padding: 25px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: #fffdf8;
+  box-shadow: 0 10px 25px rgba(58, 63, 49, .06);
+}
+.account-stats h2 {
+  margin: 0 0 18px;
+  font: 600 23px var(--serif);
+  color: var(--ink);
+}
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+.stat-cell {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #ffffff;
+}
+.stat-cell b {
+  display: block;
+  color: #71871d;
+  font: 600 26px var(--serif);
+}
+.stat-cell span {
+  display: block;
+  margin-top: 4px;
+  color: var(--mist);
+  font-size: 11px;
+}
+.stats-preference {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 16px 0 0;
+  color: var(--mist);
+  font-size: 12px;
+}
+.stats-create-link {
+  margin-left: 8px;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fffdf8;
+  color: #647918;
+  font-size: 12px;
+  cursor: pointer;
+}
+.stats-create-link:hover {
+  border-color: #b8d05b;
+}
+/* 个人中心：最近作品墙。 */
+.profile-gallery {
+  margin-bottom: 24px;
+  padding: 25px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: #fffdf8;
+  box-shadow: 0 10px 25px rgba(58, 63, 49, .06);
+}
+.profile-gallery h2 {
+  margin: 0 0 18px;
+  font: 600 23px var(--serif);
+  color: var(--ink);
+}
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.gallery-item {
+  position: relative;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  cursor: pointer;
+  background: #f0f0e9;
+}
+.gallery-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform .25s ease;
+}
+.gallery-item:hover img {
+  transform: scale(1.04);
+}
+.gallery-item-caption {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 18px 10px 8px;
+  text-align: left;
+  color: #fff;
+  background: linear-gradient(transparent, rgba(30, 32, 24, .68));
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+.gallery-item:hover .gallery-item-caption,
+.gallery-item:focus-visible .gallery-item-caption {
+  opacity: 1;
+}
+.gallery-item-caption b {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+}
+.gallery-item-caption small {
+  font-size: 10px;
+  opacity: .82;
+}
+.gallery-empty-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #647918;
+  font-size: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.gallery-manage-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 14px;
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fffdf8;
+  color: var(--mist);
+  font-size: 12px;
+  cursor: pointer;
+}
+.gallery-manage-link:hover {
+  color: #647918;
+  border-color: #b8d05b;
+}
+/* 窄屏：统计格与作品墙降为两列。 */
+@media (max-width: 720px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .gallery-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+/* 个人中心：标题区右上角的修改密码入口按钮。 */
+.password-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fffdf8;
+  color: #647918;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+.password-entry:hover {
+  border-color: #b8d05b;
+  background: #f4f8e4;
+}
+/* 个人中心：修改密码弹窗。
+   全站 Modal 默认宽 900px，改密码表单窄，这里用 :has 从表单反选弹窗容器收窄宽度。 */
+.modal:has(.password-form) {
+  width: min(420px, 92vw);
+}
+.modal:has(.password-form)>header {
+  padding: 22px 26px 18px;
+}
+.password-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 6px 26px 26px;
+  background: var(--neo-surface);
+}
+.password-form label {
+  display: grid;
+  gap: 7px;
+}
+.password-form .template-form-label-text {
+  color: var(--mist);
+  font-size: 12px;
+  letter-spacing: .3px;
+}
+.password-form input {
+  padding: 11px 14px;
+  border: 1px solid #E7E1D7;
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--neo-text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+/* 带查看按钮的密码输入：按钮悬浮在输入框内右侧。 */
+.password-input-wrap {
+  position: relative;
+  display: block;
+}
+.password-input-wrap input {
+  width: 100%;
+  padding-right: 44px;
+}
+/* Edge/Chrome 会在密码框内注入原生"显示密码"按钮，与自定义眼睛按钮重叠，这里隐藏。 */
+.password-input-wrap input::-ms-reveal,
+.password-input-wrap input::-ms-clear,
+.password-input-wrap input::-webkit-credentials-auto-fill-button {
+  display: none;
+}
+.password-input-wrap input::-webkit-outer-spin-button,
+.password-input-wrap input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
+.password-eye {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--mist);
+  cursor: pointer;
+  transition: color .15s ease, background .15s ease;
+}
+.password-eye:hover {
+  color: #647918;
+  background: #f4f8e4;
+}
+.password-form input:focus {
+  border-color: #8899CC;
+  box-shadow: 0 0 0 3px rgba(136, 153, 204, .14);
+}
+.password-form-hint {
+  margin: 0;
+  color: var(--mist);
+  font-size: 12px;
+}
+.password-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 6px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.password-form-actions .primary-action {
+  min-width: 96px;
+}
+.password-form-actions .primary-action:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+.password-form-actions .password-cancel {
+  padding: 9px 18px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fffdf8;
+  color: var(--mist);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease;
+}
+.password-form-actions .password-cancel:hover {
+  color: #647918;
+  border-color: #b8d05b;
+}
 .ledger-empty {
   margin: 0;
   padding: 18px 0;
@@ -6367,4 +6670,54 @@ body {
 }
 .plain-button.is-pending:active {
   box-shadow: var(--neo-shadow-raised);
+}
+
+/* 个人中心：算力记录类型筛选标签。 */
+.ledger-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -8px 0 14px;
+}
+.ledger-filters button {
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fffdf8;
+  color: var(--mist);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease;
+}
+.ledger-filters button:hover {
+  color: #647918;
+  border-color: #b8d05b;
+}
+.ledger-filters button.active {
+  border-color: #b8d05b;
+  background: #f4f8e4;
+  color: #647918;
+  font-weight: 600;
+}
+/* 个人中心：算力记录「加载更多」按钮。 */
+.ledger-more {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 9px 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fffdf8;
+  color: var(--mist);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color .15s ease, border-color .15s ease;
+}
+.ledger-more:hover:not(:disabled) {
+  color: #647918;
+  border-color: #b8d05b;
+}
+.ledger-more:disabled {
+  opacity: .6;
+  cursor: wait;
 }

@@ -38,4 +38,23 @@ public interface AuthService {
      * @return 更新后的地址；用户不存在或被禁用时返回 null
      */
     String updateAvatar(String userId, String avatarUrl);
+
+    /**
+     * 查询个人中心资料（注册时间、最近登录时间）。
+     *
+     * @param userId 用户 ID（从 JWT 取）
+     * @return 资料记录；用户不存在或被禁用时返回 null
+     */
+    com.ms.pojo.entity.UserProfileEntity profileOf(String userId);
+
+    /**
+     * 修改当前用户的登录密码。
+     *
+     * @param userId      用户 ID（从 JWT 取）
+     * @param oldPassword 原密码（明文，用于校验）
+     * @param newPassword 新密码（明文，调用方已做长度校验）
+     * @return true 表示修改成功；false 表示用户不存在或被禁用
+     * @throws IllegalArgumentException 原密码错误时抛出
+     */
+    boolean updatePassword(String userId, String oldPassword, String newPassword);
 }

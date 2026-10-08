@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ms.mapper.ProfileMapper">
+
+    <!-- 创作统计：attempts 表无 user_id，必须 JOIN threads 限定归属；
+         SUM 返回 BIGDECIMAL，由服务层统一转 int。 -->
+    <select id="selectCreationStats" resultType="java.util.HashMap">
+        SELECT
+            COUNT(*) AS totalAttempts,
+            COALESCE(SUM(a.status = 'succeeded'), 0) AS succeededCount,
+            COALESCE(SUM(a.status = 'failed'), 0) AS failedCount,
+            COALESCE(SUM(CASE WHEN a.status = 'succeeded' THEN a.requested_count ELSE 0 END), 0) AS totalImages
+        FROM attempts a
+        JOIN threads t ON a.thread_id = t.id
+        WHERE t.user_id = #{userId}
+    </select>
+
+    <!-- 本月消耗：只累计负增量（consume），返回带符号负数，由服务层取绝对值。 -->
+    <select id="selectMonthConsumed" resultType="java.lang.Long">
+        SELECT COALESCE(SUM(amount), 0)
+        FROM credit_transactions
+        WHERE user_id = #{userId}
+          AND type = 'consume'
+          AND amount &lt; 0
+          AND created_at &gt;= #{monthStart}
+    </select>
+
+    <!-- 常用配置：取成功 attempt 中出现次数最多的模型/尺寸/模式组合。 -->
+    <select id="selectPreferredConfig" resultType="java.util.HashMap">
+        SELECT a.model_name AS modelName, a.size AS size, a.mode AS mode, COUNT(*) AS usedCount
+        FROM attempts a
+        JOIN threads t ON a.thread_id = t.id
+        WHERE t.user_id = #{userId} AND a.status = 'succeeded'
+        GROUP BY a.model_name, a.size, a.mode
+        ORDER BY usedCount DESC
+        LIMIT 1
+    </select>
+
+    <!-- 最近成功作品：按 attempt 创建时间倒序；results 为 JSON 数组字符串，服务层解析。 -->
+    <select id="selectRecentWorks" resultType="java.util.HashMap">
+        SELECT a.id AS attemptId, a.thread_id AS threadId, t.title AS threadTitle,
+               a.results AS results, a.created_at AS createdAt
+        FROM attempts a
+        JOIN threads t ON a.thread_id = t.id
+        WHERE t.user_id = #{userId} AND a.status = 'succeeded' AND a.results IS NOT NULL
+        ORDER BY a.created_at DESC
+        LIMIT #{limit}
+    </select>
+</mapper>

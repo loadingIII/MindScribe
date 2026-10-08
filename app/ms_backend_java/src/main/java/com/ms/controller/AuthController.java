@@ -87,12 +87,24 @@ public class AuthController {
             var user = authService.findActiveById(userId);
             String displayName = user == null ? "" : user.displayName();
             String avatarUrl = authService.avatarOf(userId);
+            // 个人中心展示注册时间与最近登录时间；查询失败不阻塞基础信息返回。
+            java.time.LocalDateTime createdAt = null;
+            java.time.LocalDateTime lastLoginAt = null;
+            try {
+                var profile = authService.profileOf(userId);
+                if (profile != null) {
+                    createdAt = profile.createdAt();
+                    lastLoginAt = profile.lastLoginAt();
+                }
+            } catch (Exception ignored) { }
             java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
             body.put("userId", userId);
             body.put("email", claims.get("email", String.class));
             body.put("role", claims.get("role", String.class));
             body.put("displayName", displayName);
             body.put("avatarUrl", avatarUrl == null ? "" : avatarUrl);
+            body.put("createdAt", createdAt);
+            body.put("lastLoginAt", lastLoginAt);
             return ResponseEntity.ok(body);
         } catch (Exception ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("{\"code\":\"UNAUTHORIZED\",\"message\":\"请先登录\"}");

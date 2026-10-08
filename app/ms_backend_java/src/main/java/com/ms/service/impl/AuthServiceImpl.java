@@ -94,4 +94,27 @@ public class AuthServiceImpl implements AuthService {
         if (userMapper.updateAvatarUrl(userId, url) == 0) return null;
         return url;
     }
+
+    @Override
+    /** 查询个人中心资料（注册时间、最近登录时间）；用户不存在或被禁用时返回 null。 */
+    public com.ms.pojo.entity.UserProfileEntity profileOf(String userId) {
+        if (userId == null || userId.isBlank()) return null;
+        return userMapper.findProfileById(userId);
+    }
+
+    @Override
+    /**
+     * 修改登录密码：先校验原密码，再写入新哈希。
+     * 已知限制：当前 JWT 无版本号机制，改密码不会吊销已签发的会话。
+     */
+    public boolean updatePassword(String userId, String oldPassword, String newPassword) {
+        if (userId == null || userId.isBlank()) return false;
+        var user = userMapper.findActiveById(userId);
+        if (user == null || user.passwordHash() == null) return false;
+        if (oldPassword == null || !passwordEncoder.matches(oldPassword, user.passwordHash())) {
+            throw new IllegalArgumentException("原密码不正确");
+        }
+        String newHash = passwordEncoder.encode(newPassword);
+        return userMapper.updatePassword(userId, newHash) > 0;
+    }
 }
