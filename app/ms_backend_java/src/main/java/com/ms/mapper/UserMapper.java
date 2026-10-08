@@ -50,37 +50,12 @@ public interface UserMapper {
     @Update("UPDATE users SET last_login_at = CURRENT_TIMESTAMP(3) WHERE id = #{userId}")
     int updateLastLogin(@Param("userId") String userId);
 
-    /** 管理端用户列表：keyword 模糊匹配用户名/邮箱，返回余额字段，按注册时间倒序。 */
-    @Select("""
-            <script>
-            SELECT id, username, email, display_name AS displayName, role, status,
-                   credit_balance AS creditBalance, created_at AS createdAt, last_login_at AS lastLoginAt
-            FROM users
-            <where>
-                <if test="keyword != null">
-                    AND (username LIKE #{keyword} OR email LIKE #{keyword})
-                </if>
-            </where>
-            ORDER BY created_at DESC
-            LIMIT #{limit} OFFSET #{offset}
-            </script>
-            """)
+    /** 管理端用户列表：keyword 模糊匹配用户名/邮箱，返回余额字段，按注册时间倒序。SQL 见 UserMapper.xml。 */
     java.util.List<java.util.Map<String, Object>> findUsersForAdmin(@Param("keyword") String keyword,
                                                                     @Param("limit") int limit,
                                                                     @Param("offset") int offset);
 
-    /** 管理端用户总数：条件与 findUsersForAdmin 保持一致。 */
-    @Select("""
-            <script>
-            SELECT COUNT(*)
-            FROM users
-            <where>
-                <if test="keyword != null">
-                    AND (username LIKE #{keyword} OR email LIKE #{keyword})
-                </if>
-            </where>
-            </script>
-            """)
+    /** 管理端用户总数：条件与 findUsersForAdmin 保持一致。SQL 见 UserMapper.xml。 */
     long countUsersForAdmin(@Param("keyword") String keyword);
 
     /** 查询全部管理员（admin/super-admin），供管理端管理员列表展示。 */
