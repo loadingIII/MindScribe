@@ -14,9 +14,9 @@ public class WebConfig implements WebMvcConfigurer {
     public WebConfig(JwtService jwtService) { this.jwtService = jwtService; }
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        // 业务接口：登录即可访问（含积分查询）。
+        // 业务接口：登录即可访问（含积分查询与个人中心聚合）。
         registry.addInterceptor(new JwtAuthInterceptor(jwtService))
-                .addPathPatterns("/gen_imgs/**", "/prompt_templates/**", "/credits/**");
+                .addPathPatterns("/gen_imgs/**", "/prompt_templates/**", "/credits/**", "/profile/**");
         // 管理接口：登录且必须具备 admin 角色，与业务拦截器路径互不重叠。
         registry.addInterceptor(new com.ms.security.AdminAuthInterceptor(jwtService))
                 .addPathPatterns("/admin/**");
