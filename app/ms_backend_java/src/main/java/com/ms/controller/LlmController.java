@@ -5,8 +5,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ms.pojo.dto.GenerateMetadataRequest;
 import com.ms.pojo.dto.OptimizePromptRequest;
-import com.ms.pojo.dto.ParseImageRequest;
-import com.ms.pojo.dto.ParseImageResponse;
 import com.ms.pojo.vo.GenerateMetadataResponse;
 import com.ms.pojo.vo.OptimizePromptResponse;
 import com.ms.utils.LogUtil;
@@ -383,151 +381,6 @@ public class LlmController {
     }
 
     /**
-     * 图像解析接口：根据用户上传的图片和解析意图，调用大模型进行视觉分析，
-     * 返回结构化的标签提示词。
-     *
-     * @param userPrompt 用户的解析意图（如"模仿构图"、"抽离画风"）
-     * @param image 待解析的图片文件
-     * @return 包含分析摘要和标签列表的响应
-     */
-    @PostMapping(value = "/prompts/parse-image", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ParseImageResponse parseImage(
-            @RequestParam("userPrompt") String userPrompt,
-            @RequestParam("image") MultipartFile image) {
-        throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "图像解析服务暂时不可用");
-//        // 参数校验
-//        if (userPrompt == null || userPrompt.trim().isEmpty()) {
-//            throw new ResponseStatusException(
-//                    HttpStatus.BAD_REQUEST,
-//                    "解析意图不能为空");
-//        }
-//        if (userPrompt.length() > 500) {
-//            throw new ResponseStatusException(
-//                    HttpStatus.BAD_REQUEST,
-//                    "解析意图不能超过 500 个字符");
-//        }
-//        if (image == null || image.isEmpty()) {
-//            throw new ResponseStatusException(
-//                    HttpStatus.BAD_REQUEST,
-//                    "请上传待解析的图片");
-//        }
-//
-//        try {
-//            // 1. 上传图片到 OSS
-//            String imageUrl = ossStorageUtil.upload(image, PROMPT_REFERENCE_IMAGES_DIR);
-//            log.info("图像解析：已上传图片到 OSS，URL: {}", imageUrl);
-//
-//            // 2. 构建提示词并调用 LLM
-//            String systemPrompt = buildImageParseSystemPrompt(userPrompt);
-//            UserMessage userMessage = buildImageParseUserMessage(userPrompt, imageUrl);
-//
-//            // 3. 流式接收响应并拼接
-//            String response = chatClient.prompt(new Prompt(List.of(
-//                            new SystemMessage(systemPrompt),
-//                            userMessage)))
-//                    .stream()
-//                    .content()
-//                    .collect(Collectors.joining())
-//                    .block();
-//
-//            // 4. 解析响应 JSON 并附加 OSS 图片地址
-//            ParseImageResponse parseResponse = parseImageParseResponse(response);
-//            parseResponse.setImageUrl(imageUrl);
-//            return parseResponse;
-//
-//        } catch (ResponseStatusException exception) {
-//            throw exception;
-//        } catch (IOException exception) {
-//            log.error("上传图片到 OSS 失败", exception);
-//            throw new ResponseStatusException(
-//                    HttpStatus.INTERNAL_SERVER_ERROR,
-//                    "图片上传失败，请稍后重试",
-//                    exception);
-//        } catch (Exception exception) {
-//            log.error("调用图像解析模型失败", exception);
-//            throw new ResponseStatusException(
-//                    HttpStatus.BAD_GATEWAY,
-//                    "图像解析服务暂时不可用",
-//                    exception);
-//        }
-    }
-
-    /** 读取并填充图像解析提示词模板。 */
-    private String buildImageParseSystemPrompt(String userPrompt) {
-        try {
-            String template = promptUtils.readPrompt("GenPromptFromImage");
-            // GenPromptFromImage.md 模板已包含完整指令，此处无需额外替换
-            return template;
-        } catch (IOException exception) {
-            log.error("读取图像解析提示词模板失败", exception);
-            throw new ResponseStatusException(
-                    HttpStatus.INTERNAL_SERVER_ERROR,
-                    "图像解析模板加载失败",
-                    exception);
-        }
-    }
-
-    /** 构造图像解析的用户消息，包含用户意图和图片。 */
-    private UserMessage buildImageParseUserMessage(String userPrompt, String imageUrl) {
-        try {
-            return UserMessage.builder()
-                    .text("用户的解析意图：" + userPrompt.trim())
-                    .media(new Media(
-                            org.springframework.util.MimeTypeUtils.IMAGE_PNG,
-                            new URI(imageUrl)))
-                    .build();
-        } catch (URISyntaxException exception) {
-            log.error("图片 URL 格式错误: {}", imageUrl, exception);
-            throw new ResponseStatusException(
-                    HttpStatus.INTERNAL_SERVER_ERROR,
-                    "图片地址格式不正确",
-                    exception);
-        }
-    }
-
-    /** 解析图像解析模型返回的 JSON 响应；模型输出可能带 Markdown 围栏或被内容审核截断，需先做修复。 */
-    private ParseImageResponse parseImageParseResponse(String rawResponse) {
-        if (rawResponse == null || rawResponse.isBlank()) {
-            log.error("图像解析模型返回空内容");
-            throw invalidImageParseResponse();
-        }
-
-        JsonNode root = null;
-        try {
-            root = objectMapper.readTree(
-                    repairModelJson(rawResponse, this::invalidImageParseResponse));
-        } catch (JsonProcessingException exception) {
-            log.error("解析图像解析模型返回的 JSON 失败: {}", rawResponse, exception);
-            throw invalidImageParseResponse();
-        }
-
-        // 提取 analysis_summary
-        String summary = root.path("analysis_summary").asText("");
-
-        // 提取 tags 数组，只保留名称与内容均非空的项
-        List<ParseImageResponse.TagItem> tags = new ArrayList<>();
-        if (root.has("tags") && root.get("tags").isArray()) {
-            for (JsonNode tagNode : root.get("tags")) {
-                String tagName = tagNode.path("tag_name").asText("").trim();
-                String tagValue = tagNode.path("tag_value").asText("").trim();
-                if (!tagName.isBlank() && !tagValue.isBlank()) {
-                    tags.add(new ParseImageResponse.TagItem(tagName, tagValue));
-                }
-            }
-        }
-
-        if (tags.isEmpty()) {
-            log.error("图像解析模型未返回有效标签");
-            throw invalidImageParseResponse();
-        }
-
-        ParseImageResponse result = new ParseImageResponse();
-        result.setAnalysisSummary(summary);
-        result.setTags(tags);
-        return result;
-    }
-
-    /**
      * 清洗并修复模型输出，使其可被 Jackson 解析。
      *
      * <p>处理三类常见问题：</p>
@@ -665,12 +518,5 @@ public class LlmController {
             closed.append(stack.pop());
         }
         return closed.toString();
-    }
-
-    /** 避免把原始模型返回内容直接暴露给浏览器。 */
-    private ResponseStatusException invalidImageParseResponse() {
-        return new ResponseStatusException(
-                HttpStatus.BAD_GATEWAY,
-                "图像解析服务返回的数据格式不正确");
     }
 }
