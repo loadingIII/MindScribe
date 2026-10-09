@@ -402,6 +402,7 @@ public class GenImgsServiceImpl implements GenImgsService {
      * 构建指定 Thread 的迭代树：根节点是虚拟的"原图"节点（用户上传的参考图），
      * 无父节点关系的 Attempt（首次生成与历史重试）都作为根的直接子节点，
      * 迭代生成的 Attempt 按 parent_attempt_id 挂到对应父节点下。
+     * 失败的 Attempt 不进树：没有结果图，挂在树上只会误导用户选它继续迭代。
      */
     @Override
     public IterationTreeVO getIterationTree(String userId, String threadId) throws IOException {
@@ -412,10 +413,18 @@ public class GenImgsServiceImpl implements GenImgsService {
         if (stored == null || stored.isEmpty()) throw new IllegalArgumentException("Thread 不存在: " + threadId);
         // 结果按 attempt_no 倒序返回，先反转成创建正序再构建树。
         Collections.reverse(stored);
+        // 过滤失败 Attempt：无结果图的节点不参与迭代树。
+        stored = stored.stream()
+                .filter(item -> !"failed".equalsIgnoreCase(item.getStatus()))
+                .collect(java.util.stream.Collectors.toList());
+        if (stored.isEmpty()) {
+            // 全部尝试都失败：只返回原图根节点，画布不空但无分支可选。
+            stored = new ArrayList<>();
+        }
         Map<String, AttemptEntity> byId = new LinkedHashMap<>();
         for (AttemptEntity item : stored) byId.put(item.getId(), item);
 
-        // 一次遍历建立父子索引；孤儿节点（父 Attempt 已被清理）回挂到根，保证树完整可达。
+        // 一次遍历建立父子索引；孤儿节点（父 Attempt 已被清理或失败被过滤）回挂到根，保证树完整可达。
         Map<String, List<AttemptEntity>> children = new LinkedHashMap<>();
         List<AttemptEntity> rootChildren = new ArrayList<>();
         for (AttemptEntity item : stored) {
@@ -440,8 +449,9 @@ public class GenImgsServiceImpl implements GenImgsService {
         for (AttemptEntity child : rootChildren) {
             buildTreeNodes(child, children, 1, nodes);
         }
-        AttemptEntity latest = stored.get(stored.size() - 1);
-        return new IterationTreeVO(threadId, thread == null ? "" : thread.getTitle(), ROOT_NODE_ID, latest.getId(), nodes);
+        // 最新节点从过滤后的列表取，避免引用已被剔除的失败 Attempt。
+        String latestNodeId = stored.isEmpty() ? ROOT_NODE_ID : stored.get(stored.size() - 1).getId();
+        return new IterationTreeVO(threadId, thread == null ? "" : thread.getTitle(), ROOT_NODE_ID, latestNodeId, nodes);
     }
 
     /** 虚拟根节点（原图）的固定 ID，前端据此区分根与生成节点。 */

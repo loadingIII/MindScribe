@@ -42,6 +42,7 @@ CREATE TABLE `attempts` (
   `output_format` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'png',
   `requested_count` tinyint NOT NULL DEFAULT '1' COMMENT '生成数量',
   `mode` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '模式',
+  `parent_attempt_id` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '迭代父 Attempt ID；NULL 表示该 Thread 的首个尝试',
   `results` json DEFAULT NULL COMMENT '生成结果 OSS 地址及元数据',
   `external_task_id` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '推理服务任务 ID',
   `error_code` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -56,6 +57,7 @@ CREATE TABLE `attempts` (
   UNIQUE KEY `uk_attempt_external_task` (`external_task_id`),
   KEY `idx_attempts_thread_created` (`thread_id`,`created_at`),
   KEY `idx_attempts_status_created` (`status`,`created_at`),
+  KEY `idx_attempts_parent` (`parent_attempt_id`),
   CONSTRAINT `fk_attempts_thread` FOREIGN KEY (`thread_id`) REFERENCES `threads` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
