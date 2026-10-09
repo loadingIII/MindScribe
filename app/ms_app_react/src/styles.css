@@ -408,7 +408,8 @@ img {
   height:100%;
   object-fit:cover;
 }
-.reference-item button {
+/* 悬浮才显示的是"移除参考图"小按钮；预览按钮（reference-preview）始终可见，不受此规则影响。 */
+.reference-item button:not(.reference-preview) {
   position:absolute;
   top:5px;
   right:5px;
@@ -421,7 +422,7 @@ img {
   opacity:0;
   transition:.2s;
 }
-.reference-item:hover button {
+.reference-item:hover button:not(.reference-preview) {
   opacity:1;
 }
 .reference-add {
@@ -4396,132 +4397,66 @@ body {
   flex:0 1 auto;
   min-width:0;
 }
-.task-name-input {
-  color: var(--neo-text);
-  font: 600 20px/1.3 var(--serif);
-  letter-spacing: -.02em;
-  border: none;
-  background: transparent;
-  outline: 0;
-  padding: 12px 16px;
-  min-width: 200px;
-  max-width: 480px;
-  border-radius: 16px;
-  transition: all .2s;
-}
-.task-name-input:read-only {
-  cursor: default;
-  background: transparent;
-}
-.task-name-input:not(:read-only) {
-  color: var(--neo-primary);
-  background: var(--neo-surface);
-  box-shadow: var(--neo-shadow-pressed);
-}
-.task-name-input:not(:read-only):focus {
-  box-shadow: var(--neo-shadow-inset-deep);
-  outline: 2px solid rgba(136, 153, 204, 0.2);
-  outline-offset: -2px;
-}
 .task-name-placeholder {
   color:var(--muted);
   font:500 20px/1.3 var(--serif);
   letter-spacing:-.02em;
 }
-.task-name-edit-btn {
-  display:grid;
-  place-items:center;
-  width:32px;
-  height:32px;
-  flex-shrink:0;
-  color:var(--muted);
-  border:1px solid transparent;
-  border-radius:8px;
-  background:transparent;
-  transition:all .2s;
-  cursor:pointer;
-}
-.task-name-edit-btn:hover {
-  color:var(--ink);
-  border-color:var(--line);
-  background:rgba(255,255,255,.6);
+/* 任务名称纯文本展示：顶栏左上的当前任务标识，不可编辑。 */
+.task-name-display {
+  margin:0;
+  max-width:420px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:var(--neo-text);
+  font:600 18px/1.3 var(--serif);
+  letter-spacing:-.02em;
 }
 
-/* 右侧操作按钮组 */
+/* 右侧操作按钮组：方正、统一灰色的克制风格。 */
 .topbar-actions {
   display:flex;
   align-items:center;
-  gap:10px;
+  gap:8px;
   flex-shrink:0;
 }
 .action-btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 10px 18px;
-  border: 0;
-  border-radius: 18px;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
   font: 600 13px/1 var(--sans);
   letter-spacing: .01em;
   cursor: pointer;
   white-space: nowrap;
-  box-shadow: var(--neo-shadow-raised);
-  background: var(--neo-surface);
+  /* 统一灰色系：浅灰底、深灰字，靠描边区分层级，不使用彩色渐变。 */
+  background: #FFFFFF;
   color: var(--neo-text);
+  box-shadow: none;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.action-btn:hover:not(:disabled) {
+  background: var(--neo-raised);
+  border-color: var(--muted);
+}
+.action-btn:active:not(:disabled) {
+  background: var(--neo-pressed);
 }
 .action-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.45;
   cursor: not-allowed;
   pointer-events: none;
-  box-shadow: var(--neo-shadow-sm);
 }
 
-/* 新建任务：渐变强调色 */
-.action-new {
-  color: #FFFFFF;
-  background: linear-gradient(135deg, #8899CC 0%, #A8B8E8 100%);
-  box-shadow: var(--neo-shadow-raised);
-}
-.action-new:hover:not(:disabled) {
-  background: linear-gradient(135deg, #7788BB 0%, #98A8D8 100%);
-  box-shadow: var(--neo-shadow-hover);
-  transform: translateY(-1px);
-}
-.action-new:active:not(:disabled) {
-  box-shadow: var(--neo-shadow-pressed);
-  transform: translateY(0);
-}
-
-/* 发布到模板：紫色渐变 */
-.action-publish {
-  color: #FFFFFF;
-  background: linear-gradient(135deg, #B8A8E8 0%, #C8B8F0 100%);
-  box-shadow: var(--neo-shadow-raised);
-}
-.action-publish:hover:not(:disabled) {
-  background: linear-gradient(135deg, #A898D8 0%, #B8A8E0 100%);
-  box-shadow: var(--neo-shadow-hover);
-  transform: translateY(-1px);
-}
-.action-publish:active:not(:disabled) {
-  box-shadow: var(--neo-shadow-pressed);
-  transform: translateY(0);
-}
-
-/* 工作区：内凹风格，激活时更明显的内凹 */
-.action-workspace {
-  color: var(--neo-text);
-  border: none;
-  background: var(--neo-surface);
-  box-shadow: var(--neo-shadow-raised);
-}
-.action-workspace:hover:not(:disabled) {
-  box-shadow: var(--neo-shadow-hover);
-}
+/* 工作区按钮：打开时以深灰反色提示激活态。 */
 .action-workspace.is-active {
-  color: var(--neo-accent);
-  background: var(--neo-surface);
-  box-shadow: var(--neo-shadow-pressed);
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #FFFFFF;
 }
 
 /* 工作区打开时的微挤压适配 */
@@ -4532,23 +4467,11 @@ body {
   flex: 0 1 auto;
   min-width: 0;
 }
-.app-frame:has(.unified-rail) .task-name-input {
+.app-frame:has(.unified-rail) .task-name-display {
   max-width: 240px;
 }
 .app-frame:has(.unified-rail) .topbar-actions {
-  gap: 10px;
-}
-.app-frame:has(.unified-rail) .action-btn {
-  padding-left: 18px;
-  padding-right: 18px;
-}
-.app-frame:has(.unified-rail) .action-publish {
-  padding-left: 16px;
-  padding-right: 16px;
-}
-.app-frame:has(.unified-rail) .action-workspace {
-  padding-left: 14px;
-  padding-right: 14px;
+  gap: 8px;
 }
 
 /* 响应式：工作区侧栏打开时的布局优化 */
@@ -4556,7 +4479,7 @@ body {
   .create-topbar {
     padding:0 20px;
   }
-  .task-name-input {
+  .task-name-display {
     max-width:320px;
   }
   .topbar-actions {
@@ -6720,4 +6643,667 @@ body {
 .ledger-more:disabled {
   opacity: .6;
   cursor: wait;
+}
+
+/* ===================== 迭代树可视化页 ===================== */
+
+/* 页面容器：占满主区域全高（迭代树路由下 AppShell 顶栏隐藏，本页顶栏为唯一顶栏）。 */
+.iteration-tree-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 480px;
+  overflow: hidden;
+  background: #FFFFFF;
+}
+
+/* 加载与错误状态页。 */
+.iteration-tree-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--neo-text);
+  text-align: center;
+}
+.iteration-tree-state h2 {
+  margin: 4px 0 0;
+  font-size: 20px;
+}
+.iteration-tree-state p {
+  margin: 0;
+  color: var(--neo-text-muted);
+  font-size: 13px;
+}
+
+/* 顶栏：返回按钮、任务信息与视图操作；迭代树页的唯一顶栏，白底细线分隔。 */
+.iteration-tree-topbar {
+  height: 64px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 24px;
+  background: #FFFFFF;
+  border-bottom: 1px solid var(--line);
+}
+.iteration-tree-topbar .topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.iteration-tree-topbar .topbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--line-strong);
+}
+.iteration-tree-topbar .task-info {
+  min-width: 0;
+}
+.iteration-tree-topbar .task-info h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--neo-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.iteration-tree-topbar .task-stats {
+  font-size: 12px;
+  color: var(--neo-text-muted);
+}
+.iteration-tree-topbar .topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tree-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 10px;
+  background: var(--neo-raised);
+  box-shadow: var(--neo-shadow-sm);
+  color: var(--neo-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.tree-back-button:hover {
+  color: var(--neo-primary);
+  box-shadow: var(--neo-shadow);
+}
+.topbar-action {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 10px;
+  background: var(--neo-raised);
+  box-shadow: var(--neo-shadow-sm);
+  color: var(--neo-text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.topbar-action:hover:not(:disabled) {
+  color: var(--neo-primary);
+  box-shadow: var(--neo-shadow);
+}
+.topbar-action:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+/* 画布区域：占据剩余空间，React Flow 需要确定的高度。 */
+.iteration-tree-canvas {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 画布左上角提示信息。 */
+.tree-canvas-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: var(--neo-surface);
+  box-shadow: var(--neo-shadow-sm);
+  color: var(--neo-text-muted);
+  font-size: 12px;
+}
+
+/* 自定义树节点卡片。 */
+.tree-node {
+  position: relative;
+  width: 200px;
+  border-radius: 14px;
+  background: var(--neo-surface);
+  box-shadow: var(--neo-shadow);
+  cursor: pointer;
+  overflow: visible;
+}
+.tree-node.is-selected {
+  box-shadow: var(--neo-shadow), 0 0 0 2px var(--neo-primary);
+}
+.tree-node.is-current {
+  box-shadow: var(--neo-shadow), 0 0 0 2px var(--neo-accent-dark);
+}
+.tree-node.is-failed {
+  opacity: .75;
+}
+.tree-node-handle {
+  width: 8px;
+  height: 8px;
+  background: var(--neo-accent);
+  border: 2px solid var(--neo-surface);
+  opacity: 0;
+}
+
+/* 节点缩略图区。 */
+.tree-node-image {
+  position: relative;
+  height: 148px;
+  border-radius: 14px 14px 0 0;
+  overflow: hidden;
+  background: var(--neo-pressed);
+}
+.tree-node-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.tree-node-image-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--neo-text-muted);
+  font-size: 12px;
+}
+.tree-node-current-tag {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--neo-primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* 节点状态角标。 */
+.tree-node-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--neo-surface);
+  box-shadow: var(--neo-shadow-sm);
+}
+.tree-node-badge.is-running {
+  color: var(--neo-primary);
+}
+.tree-node-badge.is-failed {
+  color: #c96f6f;
+}
+.tree-node-spin {
+  animation: tree-node-rotate 1s linear infinite;
+}
+@keyframes tree-node-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* 节点信息区。 */
+.tree-node-info {
+  padding: 10px 12px 6px;
+}
+.tree-node-title {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.tree-node-title b {
+  font-size: 13px;
+  color: var(--neo-text);
+}
+.tree-node-title span {
+  font-size: 11px;
+  color: var(--neo-text-muted);
+}
+.tree-node-prompt {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--neo-text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-all;
+}
+
+/* 节点上的快速继续按钮。 */
+.tree-node-continue {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 12px 10px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: var(--neo-raised);
+  box-shadow: var(--neo-shadow-sm);
+  color: var(--neo-text);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tree-node-continue:hover:not(:disabled) {
+  color: var(--neo-primary);
+  box-shadow: var(--neo-shadow);
+}
+.tree-node-continue:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+/* 节点详情面板：吸附在画布右侧的侧栏，图片在上、信息在下，可收起。 */
+.node-detail-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 10;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  background: #FFFFFF;
+  border: 1px solid var(--line);
+  box-shadow: var(--neo-shadow);
+  transition: transform .3s ease, opacity .25s ease;
+}
+/* 收起时整块滑出屏幕右侧，仅留下展开按钮悬浮在画布边缘。 */
+.node-detail-panel.collapsed {
+  transform: translateX(calc(100% + 14px));
+  pointer-events: none;
+}
+.node-detail-panel.collapsed .panel-toggle {
+  pointer-events: auto;
+  transform: translateX(calc(-100% - 14px));
+}
+.node-detail-panel .panel-toggle {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--neo-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.node-detail-panel .panel-toggle span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.node-detail-panel .panel-toggle svg {
+  transition: transform .25s ease;
+  flex-shrink: 0;
+}
+.node-detail-panel .panel-toggle svg.rotated {
+  transform: rotate(180deg);
+}
+/* 侧栏内容纵向排布：预览图固定高度，详情区域滚动。 */
+.node-detail-panel .panel-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 14px 16px 16px;
+  overflow: hidden;
+}
+.node-detail-panel .panel-preview {
+  position: relative;
+  flex-shrink: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--neo-pressed);
+  height: 200px;
+}
+.node-detail-panel .panel-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  cursor: zoom-in;
+}
+.node-detail-panel .panel-preview-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--neo-text-muted);
+  font-size: 12px;
+}
+.node-detail-panel .preview-actions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  background: linear-gradient(transparent, rgba(74, 74, 104, 0.55));
+}
+.node-detail-panel .preview-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--neo-text);
+  font-size: 11px;
+  cursor: pointer;
+}
+.node-detail-panel .preview-actions button:hover {
+  background: #fff;
+}
+
+/* 详情信息区域：侧栏下方滚动展示。 */
+.node-detail-panel .panel-details {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-top: 12px;
+}
+.node-detail-panel .detail-section {
+  margin-bottom: 12px;
+}
+.node-detail-panel .detail-section h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--neo-text-muted);
+  font-weight: 600;
+}
+.node-detail-panel .detail-section dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+}
+.node-detail-panel .detail-section dl > div {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.node-detail-panel .detail-section dt {
+  color: var(--neo-text-muted);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.node-detail-panel .detail-section dd {
+  margin: 0;
+  color: var(--neo-text);
+  font-size: 12px;
+  word-break: break-all;
+}
+.node-detail-panel .panel-prompt {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--neo-pressed);
+  color: var(--neo-text);
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 130px;
+  overflow: auto;
+  word-break: break-all;
+}
+.node-detail-panel .panel-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.node-detail-panel .panel-tags span {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--neo-raised);
+  color: var(--neo-text);
+  font-size: 11px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.node-detail-panel .panel-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin-top: 4px;
+}
+.node-detail-panel .panel-actions .primary-action {
+  justify-content: center;
+}
+.node-detail-panel .panel-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 10px;
+  background: var(--neo-raised);
+  color: var(--neo-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.tree-node-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(30, 32, 44, 0.62);
+}
+.tree-node-preview-backdrop img {
+  max-width: min(86vw, 1080px);
+  max-height: 84vh;
+  border-radius: 14px;
+  box-shadow: var(--neo-shadow-deep);
+}
+.tree-node-preview-close {
+  position: absolute;
+  top: 22px;
+  right: 26px;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--neo-text);
+  cursor: pointer;
+}
+.iteration-tree-canvas .react-flow__controls {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--neo-shadow-sm);
+  border: 1px solid var(--line);
+  margin-bottom: 16px;
+}
+.iteration-tree-canvas .react-flow__controls-button {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: #FFFFFF;
+  color: var(--neo-text);
+}
+.iteration-tree-canvas .react-flow__controls-button:hover {
+  background: var(--neo-raised);
+  color: var(--neo-primary);
+}
+.iteration-tree-canvas .react-flow__minimap {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--neo-shadow-sm);
+  border: 1px solid var(--line);
+  margin-bottom: 16px;
+  margin-right: 12px;
+}
+@media (max-width: 860px) {
+  .node-detail-panel {
+    width: min(320px, 86vw);
+  }
+  .node-detail-panel .panel-preview {
+    height: 150px;
+  }
+  .iteration-tree-canvas .react-flow__minimap {
+    display: none;
+  }
+}
+
+/* 创作页画布状态栏的"迭代树"入口按钮。 */
+.canvas-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.view-tree-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 8px;
+  background: var(--neo-raised);
+  box-shadow: var(--neo-shadow-sm);
+  color: var(--neo-text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.view-tree-button:hover {
+  color: var(--neo-primary);
+  box-shadow: var(--neo-shadow);
+}
+
+/* 迭代树页主体：顶栏 + 画布的纵向布局容器；缺少该规则时画布高度为 0 导致空白。 */
+.iteration-tree-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 迭代树根节点（用户上传的原图）：虚线描边与印章式标签，与生成结果节点区分。 */
+.tree-node.is-root {
+  border: 2px dashed var(--neo-accent-dark, #8B9DD9);
+  background: var(--neo-raised);
+}
+.tree-node.is-root .tree-node-image {
+  background: var(--neo-pressed);
+}
+.tree-node.is-root .tree-node-continue {
+  color: var(--neo-primary);
+}
+
+/* 迭代树画布：白色底 + 网格背景，节点拖拽时自动吸附 20px 网格。 */
+.iteration-tree-canvas .react-flow {
+  background: #FFFFFF;
+}
+.iteration-tree-canvas .react-flow__background {
+  background-color: #FFFFFF;
+}
+
+/* 迭代树路由下隐藏 AppShell 全局顶栏：页内顶栏是唯一顶栏，避免双层叠加。 */
+.topbar.is-hidden {
+  display: none;
+}
+
+/* 拖拽跟手性修复：全局 * 规则给所有元素注入了 transform 过渡，
+   导致平移画布时节点视口（CSS transform）滞后于网格背景（SVG 属性立即生效）。
+   在 React Flow 容器内一律禁用过渡，再单独恢复节点卡片与控件的阴影/背景过渡。 */
+.iteration-tree-canvas .react-flow,
+.iteration-tree-canvas .react-flow * {
+  transition: none;
+}
+.iteration-tree-canvas .tree-node,
+.iteration-tree-canvas .tree-node-continue,
+.iteration-tree-canvas .react-flow__controls-button,
+.iteration-tree-canvas .react-flow__minimap {
+  transition: box-shadow .2s ease, background .2s ease, background-color .2s ease, color .15s ease;
+}
+
+/* 空白占位节点：虚线卡片 + 加号图标，提示"待创作"，点击进入创作页。 */
+.tree-node.is-blank {
+  border: 2px dashed var(--neo-accent, #A8B8E8);
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: var(--neo-shadow-sm);
+  cursor: pointer;
+}
+.tree-node.is-blank:hover {
+  border-color: var(--neo-primary, #8899CC);
+  box-shadow: var(--neo-shadow);
+}
+.tree-node.is-blank .tree-node-image.is-blank-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--neo-accent-dark, #8B9DD9);
+  background: var(--neo-pressed);
+}
+.tree-node.is-blank .tree-node-image.is-blank-image svg {
+  width: 34px;
+  height: 34px;
+}
+.tree-node.is-blank .tree-node-title b {
+  color: var(--neo-primary);
+}
+
+/* 参考图缩略图的放大预览按钮：铺满条目本体，点击弹出大图。 */
+.reference-item .reference-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: zoom-in;
 }

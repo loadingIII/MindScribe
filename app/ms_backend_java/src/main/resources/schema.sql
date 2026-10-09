@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     output_format VARCHAR(16) NOT NULL DEFAULT 'png',
     requested_count TINYINT NOT NULL DEFAULT 1 COMMENT '生成数量',
     mode VARCHAR(32) NULL COMMENT '模式',
+    parent_attempt_id CHAR(36) NULL COMMENT '迭代父 Attempt ID；NULL 表示该 Thread 的首个尝试',
 
     results JSON NULL COMMENT '生成结果 OSS 地址及元数据',
     external_task_id VARCHAR(128) NULL COMMENT '推理服务任务 ID',
@@ -73,6 +74,7 @@ CREATE TABLE IF NOT EXISTS attempts (
     UNIQUE KEY uk_attempt_external_task (external_task_id),
     KEY idx_attempts_thread_created (thread_id, created_at),
     KEY idx_attempts_status_created (status, created_at),
+    KEY idx_attempts_parent (parent_attempt_id),
     CONSTRAINT fk_attempts_thread
         FOREIGN KEY (thread_id) REFERENCES threads (id)
         ON DELETE CASCADE

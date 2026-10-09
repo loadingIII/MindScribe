@@ -80,6 +80,8 @@ function mapThread(thread, title) {
       attemptNo: item.attemptNo ?? item.attempt_no ?? index + 1,
       taskId: item.taskId || item.task_id || item.externalTaskId,
       imageUrls,
+      // 迭代父 Attempt ID：NULL 表示非迭代生成，恢复参考图时据此区分原图与父节点结果图。
+      parentAttemptId: item.parentAttemptId ?? item.parent_attempt_id ?? null,
       modelName: item.modelName || item.model_name || item.model || "",
       prompt: readablePrompt(item.prompt),
       tags: attemptTags(item.prompt, item.tagsPrompt || item.tags_prompt),
@@ -367,6 +369,8 @@ export function CreatePage() {
   const [status, setStatus] = useCachedState("create:status", "idle");
   const [threadId, setThreadId] = useCachedState("create:threadId", "");
   const [attemptId, setAttemptId] = useCachedState("create:attemptId", "");
+  // 迭代模式父节点：{ threadId, nodeId }。由迭代树跳回时写入，生成成功或新建任务后清除。
+  const [iterationParent, setIterationParent] = useCachedState("create:iterationParent", null);
   const [results, setResults] = useCachedState("create:results", []);
   // 标签栏折叠状态单独缓存，便于在创作页与提示词构建页之间切换时保持当前视图。
   const [tagsCollapsed, setTagsCollapsed] = useCachedState("create:tagsCollapsed", false);
@@ -394,6 +398,9 @@ export function CreatePage() {
   // 本次生成的积分消耗：estimate 为提交前预估，lastCost 为提交后实际消耗（由后端原子扣减）。
   const [estimate, setEstimate] = useState(null);
   const [lastCost, setLastCost] = useState(null);
+  // 迭代上下文：从迭代树页"继续创作"跳回时由草稿携带，提交生成时转换为 parent_attempt_id。
+  // 进入迭代模式后参考图锁定为父节点结果图，避免用户误删导致迭代基础丢失。
+  const iterationContext = draft.iterationContext || null;
   // 提示词构建页带回的结构化标签，用于画布顶部的"标签栏"展示。
   const draftTags = Array.isArray(draft.tags) ? draft.tags : [];
   const tagChips = buildTagChips(draftTags);
@@ -406,6 +413,10 @@ export function CreatePage() {
   const canvasRef = useRef(null);
   // 任务失败时只提示一次，轮询不会重复弹出同一条错误。
   const failedAttemptRef = useRef("");
+  // 迭代父节点的实时镜像：reloadTaskThreads 是异步的，闭包里的 iterationParent 可能已过期，
+  // 守卫读取 ref 才能正确拦截"迭代模式跳回后异步回填线程历史 Attempt"的竞态。
+  const iterationParentRef = useRef(iterationParent);
+  iterationParentRef.current = iterationParent;
   // 追踪输入法组合状态，避免在拼音输入过程中重建 DOM 导致光标跳动。
   const composingRef = useRef(false);
 
@@ -427,6 +438,12 @@ export function CreatePage() {
         setThreadHasMore(threads.length === 10);
         
         // 刷新后从缓存状态恢复当前线程及所选 Attempt，避免丢失工作进度。
+        // 迭代守卫读实时 ref：闭包里的 iterationParent 可能已过期
+        //（迭代树跳回后 reloadTaskThreads 的异步回填晚于迭代上下文消费）。
+        // 迭代模式期间不做 Attempt 回填，画布保持空白新创作。
+        if (threadId && iterationParentRef.current) {
+          return;
+        }
         if (threadId) {
           console.log("[恢复] threadId:", threadId, "当前 taskName:", taskName);
           console.log("[恢复] 线程列表:", hydrated.map(t => ({ id: t.id, title: t.title })));
@@ -460,6 +477,29 @@ export function CreatePage() {
                   if (shouldRestorePrompt) {
                     setPrompt(targetAttempt.prompt || "");
                   }
+                  // 参考图按生成来源区分：迭代生成用父 Attempt 的结果图，其余用 Thread 原图。
+                  // normalizeToReference 补齐字符串/缺元数据条目的 file 结构，防止渲染崩溃。
+                  const normalizeToReference = (source, index) => {
+                    if (typeof source === "string") {
+                      return { id: `stored-ref-${index}`, url: source, file: { name: `参考图 ${index + 1}`, type: "image/*" } };
+                    }
+                    return {
+                      id: `stored-ref-${index}`,
+                      url: source?.url || source?.objectKey || source,
+                      file: {
+                        name: source?.filename || source?.name || `参考图 ${index + 1}`,
+                        type: source?.mimeType || "image/*"
+                      }
+                    };
+                  };
+                  const restoredReferences = targetAttempt.parentAttemptId
+                    ? (() => {
+                      const parent = mappedThread.attempts.find((item) => item.id === targetAttempt.parentAttemptId);
+                      return parent?.imageUrls?.[0]
+                        ? [{ id: `iteration-base-${parent.id}`, url: parent.imageUrls[0], file: { name: `迭代基础图-${parent.label}.png`, type: "image/png" } }]
+                        : (mappedThread.references || []).map((reference, index) => normalizeToReference(reference, index));
+                    })()
+                    : (mappedThread.references || []).map((reference, index) => normalizeToReference(reference, index));
                   setDraft((current) => ({
                     ...current,
                     prompt: shouldRestorePrompt ? (targetAttempt.prompt || "") : current.prompt,
@@ -467,8 +507,9 @@ export function CreatePage() {
                     model: normalizeModel(targetAttempt.modelName || current.model),
                     size: targetAttempt.size || current.size,
                     quality: targetAttempt.quality || current.quality,
-                    references: mappedThread.references || []
+                    references: restoredReferences
                   }));
+                  setFiles(restoredReferences);
                   
                   const restoredStatus = targetAttempt.rawStatus === "succeeded" || targetAttempt.imageUrls.length
                     ? "done"
@@ -505,12 +546,60 @@ export function CreatePage() {
     return () => { cancelled = true; };
   }, []);
 
-  // 与 AppShell 顶栏通信：同步任务名称、工作区状态和发布按钮状态
+  // 迭代树页"继续创作"跳回时的上下文恢复：
+  // 1) 若与当前任务不同，切换 threadId 并恢复任务名；2) 提示用户当前处于迭代模式。
+  // 从原图节点跳回时 parentNodeId 为 null：仅切换任务并带参考图，不进入迭代模式。
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent("topbar-task-name-update", { 
-      detail: { taskName } 
+    if (!iterationContext) return;
+    const { threadId: contextThreadId, parentNodeId, parentNodeLabel, threadTitle, baseImageUrl } = iterationContext;
+    // 首次进入时把当前任务指向迭代所属的 Thread，生成结果会追加到该任务下。
+    if (contextThreadId && contextThreadId !== threadId) {
+      setThreadId(contextThreadId);
+      setWorkspaceThreadId(contextThreadId);
+      if (threadTitle) setTaskName(threadTitle);
+    }
+    // 参考图区以迭代基础图为准（父节点结果图或原图）：
+    // 覆盖内存缓存里可能残留的上一个会话参考图，避免显示成无关的旧原图。
+    if (baseImageUrl) {
+      setFiles([{
+        id: `iteration-base-${parentNodeId || contextThreadId}`,
+        url: baseImageUrl,
+        file: { name: parentNodeId ? `迭代基础图-${parentNodeLabel}.png` : "原图.png", type: "image/png" }
+      }]);
+    }
+    if (parentNodeId) {
+      // 参考图区已由草稿带入父节点结果图，锁定避免误删迭代基础。
+      setReferencesLocked(true);
+      setToast(`正在基于节点 ${parentNodeLabel} 迭代，可修改提示词后生成`);
+      // 记录持久化的迭代父节点：刷新后仍能以迭代模式提交（contextThreadId + parentNodeId）。
+      setIterationParent({ threadId: contextThreadId, nodeId: parentNodeId });
+    } else {
+      setToast(`已载入任务「${threadTitle || "原图"}」的原图，输入提示词开始创作`);
+    }
+    // 进入的是新的一次创作：清空画布与 Attempt 引用，不回显线程历史结果；
+    // 参考图与提示词完全由迭代上下文（草稿）决定。
+    setAttemptId("");
+    setResults([]);
+    setStatus("idle");
+    // 消费后移除标记，避免刷新或重新进入创作页时重复提示与切换。
+    setDraft((current) => ({ ...current, iterationContext: null }));
+    // 仅在挂载与草稿迭代上下文变化时执行；threadId 等状态参与会引发重复消费。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [iterationContext]);
+
+  // 与 AppShell 顶栏通信：同步任务名称、当前线程、工作区状态和发布按钮状态
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("topbar-task-name-update", {
+      detail: { taskName }
     }));
   }, [taskName]);
+
+  useEffect(() => {
+    // 顶栏"迭代树"入口需要当前线程 ID；清空（新建任务）时置空让按钮置灰。
+    window.dispatchEvent(new CustomEvent("topbar-thread-update", {
+      detail: { threadId: threadId || workspaceThreadId || "" }
+    }));
+  }, [threadId, workspaceThreadId]);
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent("topbar-workspace-state", { 
@@ -525,16 +614,6 @@ export function CreatePage() {
   }, [prompt]);
 
   useEffect(() => {
-    const handleSaveTaskName = (event) => {
-      const newName = event.detail.taskName;
-      if (newName && newName !== taskName) {
-        setTaskName(newName);
-        if (workspaceThreadId) {
-          saveThreadTitle();
-        }
-      }
-    };
-
     const handleToggleWorkspace = (event) => {
       setWorkspaceOpen(event.detail.open);
     };
@@ -543,12 +622,10 @@ export function CreatePage() {
       setTemplatePublishOpen(true);
     };
 
-    window.addEventListener("topbar-save-task-name", handleSaveTaskName);
     window.addEventListener("topbar-toggle-workspace", handleToggleWorkspace);
     window.addEventListener("topbar-open-publish-modal", handleOpenPublishModal);
 
     return () => {
-      window.removeEventListener("topbar-save-task-name", handleSaveTaskName);
       window.removeEventListener("topbar-toggle-workspace", handleToggleWorkspace);
       window.removeEventListener("topbar-open-publish-modal", handleOpenPublishModal);
     };
@@ -832,25 +909,18 @@ export function CreatePage() {
     setFiles(next);
   }
 
-  async function saveThreadTitle() {
-    const id = workspaceThreadId || threadId;
-    if (!id || !taskName.trim()) return;
-    try {
-      const response = await fetch(`/gen_imgs/threads/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: taskName.trim() })
-      });
-      if (!response.ok) throw new Error("任务名称修改失败");
-      setTaskThreads((items) => items.map((item) => item.id === id ? { ...item, title: taskName.trim() } : item));
-      setToast("任务名称已更新");
-    } catch (error) { setToast(error.message); }
-  }
-
   async function startGeneration() {
     // 没有 Thread 才是首次创作；已有任务统一追加 Attempt，避免误建新 Thread。
     if (!prompt.trim() || !["idle", "failed", "done"].includes(status)) return;
     if (!currentUserId) { setToast("请先登录"); return; }
+    // 从迭代树跳回时草稿里可能还带着未消费的上下文（本次会话尚未渲染 effect），
+    // 优先以草稿为准把生成追加到对应 Thread，避免误建新 Thread。
+    const pendingContext = draft.iterationContext;
+    const targetThreadId = iterationParent?.threadId || (pendingContext ? pendingContext.threadId : null);
+    if (targetThreadId) {
+      await retryThread(targetThreadId);
+      return;
+    }
     if (threadId && (status === "failed" || status === "done")) {
       await retryThread(threadId);
       return;
@@ -906,8 +976,10 @@ export function CreatePage() {
     }
   }
 
-  async function retryThread(id) {
+  async function retryThread(id, options = {}) {
     if (!currentUserId) { setToast("请先登录"); return; }
+    // 迭代模式：显式传入 parentNodeId 时优先生效；否则沿用缓存的迭代父节点。
+    const parentNodeId = options.parentNodeId ?? (iterationParent?.threadId === id ? iterationParent?.nodeId : null);
     const form = new FormData();
     // prompt 字段现在存放结构化提示词 JSON（system_prompt/user_prompt/references/tags_prompt），由后端解析。
     form.append("prompt", JSON.stringify(buildGenImgsPrompt(prompt.trim(), draftTags, additionalSystemPrompt, files)));
@@ -915,14 +987,26 @@ export function CreatePage() {
     form.append("model", draft.model || "gpt-image-2"); form.append("size", normalizeSize(draft.size));
     // 重试请求使用与首次生成相同的质量参数映射。
     form.append("quality", normalizeQuality(draft.quality)); form.append("outputFormat", "png");
+    // 迭代生成时告知后端父节点，新结果将挂到迭代树的对应分支下。
+    // multipart 表单走 @ModelAttribute 绑定，必须用 DTO 属性名（驼峰），下划线字段绑不上。
+    if (parentNodeId) form.append("parentAttemptId", parentNodeId);
     const selectedThread = taskThreads.find((item) => item.id === id);
     const latestAttempt = selectedThread?.attempts?.at(-1);
     // 失败时本地文件可能尚未上传，保留文件资源；成功后只复用已落库的 OSS URL。
-    if (latestAttempt?.rawStatus === "succeeded") {
-      (selectedThread.references || []).forEach((reference) => {
-        const url = reference?.url || reference?.objectKey || reference;
-        if (url) form.append("referenceImageUrls", url);
-      });
+    // 迭代模式下迭代树页已把父节点结果图并入 files（远程 URL），同样按 URL 复用提交。
+    if (latestAttempt?.rawStatus === "succeeded" || parentNodeId) {
+      if (parentNodeId) {
+        // 迭代模式：参考图以当前 files 为准（首张即父节点结果图），不再拼接 Thread 历史。
+        files.forEach(({ file, url }) => {
+          if (file instanceof File) form.append("referenceImages", file);
+          else if (url) form.append("referenceImageUrls", url);
+        });
+      } else {
+        (selectedThread.references || []).forEach((reference) => {
+          const url = reference?.url || reference?.objectKey || reference;
+          if (url) form.append("referenceImageUrls", url);
+        });
+      }
     } else {
       files.forEach(({ file, url }) => {
         if (file instanceof File) form.append("referenceImages", file);
@@ -942,6 +1026,11 @@ export function CreatePage() {
         const errorData = await response.json().catch(() => null);
         const message = errorData?.message || "重试失败";
         throw new Error(message);
+      }
+      // 提交成功后迭代模式完成一轮：解除参考图锁定并清除迭代父节点，后续生成回到普通重试。
+      if (parentNodeId) {
+        setIterationParent(null);
+        setReferencesLocked(false);
       }
       const thread = await response.json();
       const existingThread = taskThreads.find((item) => item.id === id);
@@ -1012,8 +1101,9 @@ export function CreatePage() {
     setFiles([]); setReferencesLocked(false); setResults([]); setStatus("idle");
     setTaskName(defaultThreadTitle(taskThreads)); setEditingTaskName(false);
     setAttemptId(""); // 清空 Attempt ID，避免保留旧任务的执行记录引用
-    // 新建任务同时清空上一次从提示词构建页带回的标签栏内容。
-    setDraft({ ...draft, prompt: "", tags: [], references: [] });
+    // 新建任务同时退出迭代模式，并清空上一次从提示词构建页带回的标签栏内容。
+    setIterationParent(null);
+    setDraft({ ...draft, prompt: "", tags: [], references: [], iterationContext: null });
     setToast("已准备新的创作");
   }
 
@@ -1038,7 +1128,7 @@ export function CreatePage() {
     setMentionIndex(0);
   }
 
-  const mentionCandidates = files.filter((item) => item.file.name.toLowerCase().includes(mentionQuery.toLowerCase()));
+  const mentionCandidates = files.filter((item) => String(item?.file?.name || "").toLowerCase().includes(mentionQuery.toLowerCase()));
 
   function insertMention(file) {
     const editor = richPromptRef.current;
@@ -1102,17 +1192,43 @@ export function CreatePage() {
     }
   }
 
+  // 把参考图条目补齐为 { id, url, file } 结构：字符串 URL 或缺元数据的旧缓存条目
+  // 会被赋予合成文件名，避免渲染处读取 file.name 时崩溃。
+  function normalizeToReference(source, index) {
+    if (typeof source === "string") {
+      return { id: `stored-ref-${index}`, url: source, file: { name: `参考图 ${index + 1}`, type: "image/*" } };
+    }
+    return {
+      id: `stored-ref-${index}`,
+      url: source?.url || source?.objectKey || source,
+      file: {
+        name: source?.filename || source?.name || `参考图 ${index + 1}`,
+        type: source?.mimeType || "image/*"
+      }
+    };
+  }
+
   // 选择历史 Attempt 时同步恢复创作参数、标签、参考图和结果。
+  // 参考图按生成来源区分：迭代生成的 Attempt 用父节点结果图，其余用 Thread 上传的原图。
   function selectAttempt(attempt, selectedThread) {
     if (!attempt || !selectedThread) return;
-    const restoredReferences = (selectedThread.references || []).map((reference, index) => ({
-      id: `stored-ref-${index}`,
-      url: reference.url || reference.objectKey || reference,
-      file: {
-        name: reference.filename || `参考图 ${index + 1}`,
-        type: reference.mimeType || "image/*"
-      }
-    }));
+    let restoredReferences;
+    if (attempt.parentAttemptId) {
+      // 迭代生成：找到父 Attempt 的第一张结果图作为迭代基础参考图。
+      const parent = (selectedThread.attempts || []).find((item) => item.id === attempt.parentAttemptId);
+      const parentImageUrl = parent?.imageUrls?.[0];
+      restoredReferences = parentImageUrl
+        ? [{
+          id: `iteration-base-${parent.id}`,
+          url: parentImageUrl,
+          file: { name: `迭代基础图-${parent.label}.png`, type: "image/png" }
+        }]
+        // 父 Attempt 结果缺失（如生成失败）时退回原图，保证参考图区不为空。
+        : (selectedThread.references || []).map((reference, index) => normalizeToReference(reference, index));
+    } else {
+      // 首次生成或普通重试：参考图是 Thread 上传的原图。
+      restoredReferences = (selectedThread.references || []).map((reference, index) => normalizeToReference(reference, index));
+    }
     setThreadId(selectedThread.id);
     setAttemptId(attempt.id);
     setWorkspaceThreadId(selectedThread.id);
@@ -1147,7 +1263,7 @@ export function CreatePage() {
         {/* 参考图、提示词与参数区放入可滚动容器：内容超高时在模块内滚动，避免溢出被页面裁切。 */}
         <div className="control-scroll-area">
         <div className="control-title"><span>参考图</span><small>可选 · 最多 4 张</small></div>
-        <div className={`reference-strip ${files.length ? "has-files" : "empty"}`} onDragOver={(event) => !referencesLocked && event.preventDefault()} onDrop={(event) => !referencesLocked && dropReferences(event)}>{files.map((item) => <div className="reference-item" key={item.id}><img src={item.url} alt={item.file.name} /><div className="reference-caption"><span>{item.file.name}</span>{!referencesLocked && <button onClick={() => removeReference(item.id)} title="移除参考图"><X size={13} /></button>}</div></div>)}{files.length < 4 && !referencesLocked && <label className="reference-add"><ImagePlus size={24} /><div><b>{files.length ? "继续添加" : "添加参考图"}</b><small>{files.length ? `${files.length}/4 张` : "点击或拖拽图片到这里"}</small></div><input type="file" accept="image/*" multiple onChange={(event) => addReferences(event.target.files)} /></label>}</div>
+        <div className={`reference-strip ${files.length ? "has-files" : "empty"}`} onDragOver={(event) => !referencesLocked && event.preventDefault()} onDrop={(event) => !referencesLocked && dropReferences(event)}>{files.map((item) => <div className="reference-item" key={item.id}><button type="button" className="reference-preview" title="点击放大预览" onClick={() => setPreviewResult({ id: item.id, image: item.url, title: item.file.name })}><img src={item.url} alt={item.file.name} /></button><div className="reference-caption"><span>{item.file.name}</span>{!referencesLocked && <button onClick={() => removeReference(item.id)} title="移除参考图"><X size={13} /></button>}</div></div>)}{files.length < 4 && !referencesLocked && <label className="reference-add"><ImagePlus size={24} /><div><b>{files.length ? "继续添加" : "添加参考图"}</b><small>{files.length ? `${files.length}/4 张` : "点击或拖拽图片到这里"}</small></div><input type="file" accept="image/*" multiple onChange={(event) => addReferences(event.target.files)} /></label>}</div>
         <div className="prompt-editor"><div className="prompt-editor-head"><span>你的构想</span><div><small className="prompt-hint">输入 @ 关联参考图</small><button className="prompt-builder-trigger" type="button" onClick={() => navigate("/create/prompt-builder?from=create")} title="构建提示词"><Sparkles size={14} /><span>构建提示词</span></button></div></div><div ref={richPromptRef} className="rich-prompt" contentEditable suppressContentEditableWarning onInput={syncRichPrompt} onKeyDown={handleRichPromptKeyDown} onCompositionStart={() => { composingRef.current = true; }} onCompositionEnd={() => { setTimeout(() => { composingRef.current = false; }, 100); }} data-placeholder="写下你的创作构想…" />{mentionOpen && mentionCandidates.length > 0 && <div className="mention-menu"><div className="mention-title">关联参考图 · ↑↓ 选择,Enter 确认</div>{mentionCandidates.map((item, index) => <button type="button" className={index === mentionIndex ? "active" : ""} key={item.id} onMouseEnter={() => setMentionIndex(index)} onMouseDown={(event) => { event.preventDefault(); insertMention(item); }}><img src={item.url} alt="" /><span>{referenceLabel(item.file.name)}</span><kbd>{index + 1}</kbd></button>)}</div>}<small className="prompt-count">{prompt.length}/5000</small></div>
         <div className="control-fields"><SelectField label="模型" value={draft.model || "gpt-image-2"} options={["gpt-image-2"]} onChange={(value) => setDraft({ ...draft, model: value })} /><SelectField label="尺寸" value={normalizeSize(draft.size)} options={GPT_IMAGE_SIZE_OPTIONS} onChange={(value) => setDraft({ ...draft, size: value })} /><SelectField label="质量" value={normalizeQuality(draft.quality)} options={[{ value: "auto", label: "自动" }, { value: "low", label: "低" }, { value: "medium", label: "中" }, { value: "high", label: "高" }]} onChange={(value) => setDraft({ ...draft, quality: value })} /><SelectField label="数量" value="1" options={["1"]} disabled /></div>
         </div>
@@ -1179,7 +1295,7 @@ export function CreatePage() {
         {status === "idle" && !results.length && <div className="canvas-empty"><div className="empty-star"><Sparkles size={23} /></div><h2>在这里等待<br />一个新的视野。</h2><p>填写构想，或者添加一张参考图开始。</p></div>}
         {(status === "queued" || status === "working") && <div className="canvas-empty"><div className="orbit-loader"><span /></div><h2>{status === "queued" ? "灵感正在排队" : "画面正在显影"}</h2><p>{status === "queued" ? "任务将很快开始。" : "模型正在理解光线、构图与细节。"}</p></div>}
         {(status === "done" || results.length > 0) && <div className={`result-gallery count-${results.length}`}>{results.map((result) => <article className="result-image" key={result.id}><button className="result-image-preview" type="button" onClick={() => setPreviewResult(result)} aria-label={`预览${result.title}`}><img src={result.image} alt={result.title} /></button><div><span>{result.title}</span><button type="button" onClick={() => setToast("已收藏到个人画廊")} title="收藏"><Bookmark size={15} /></button><button type="button" onClick={() => downloadResultImage(result.image, `${safeDownloadName(taskName)}-${result.attemptNumber || 1}.png`)} title="下载"><Download size={15} /></button></div></article>)}</div>}
-        <div className="canvas-status"><span>状态：{status === "queued" ? "待生成" : status === "working" ? "生成中" : status === "done" ? "已生成" : status === "failed" ? "失败" : "待生成"}</span><span>{costLabel} · {files.length ? `${files.length} 张参考图已就绪` : "无需参考图"}</span></div>
+        <div className="canvas-status"><span>状态：{status === "queued" ? "待生成" : status === "working" ? "生成中" : status === "done" ? "已生成" : status === "failed" ? "失败" : "待生成"}{iterationParent && " · 迭代模式"}</span><span>{costLabel} · {files.length ? `${files.length} 张参考图已就绪` : "无需参考图"}</span></div>
         </section>
       </div>
     </div>
@@ -1265,7 +1381,7 @@ function PromptFullscreen({ value, files, onChange, onClose }) {
   const [mentionOpen, setMentionOpen] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionIndex, setMentionIndex] = useState(0);
-  const mentionCandidates = files.filter((item) => item.file.name.toLowerCase().includes(mentionQuery.toLowerCase()));
+  const mentionCandidates = files.filter((item) => String(item?.file?.name || "").toLowerCase().includes(mentionQuery.toLowerCase()));
 
   useEffect(() => {
     const editor = editorRef.current;

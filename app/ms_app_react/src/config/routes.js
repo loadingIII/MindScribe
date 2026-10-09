@@ -2,6 +2,7 @@
 export const ROUTES = {
   login: "/login",
   create: "/create",
+  iterationTree: "/create/iteration-tree",
   prompts: "/prompts",
   profile: "/profile"
 };

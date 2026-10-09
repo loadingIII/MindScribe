@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ms.pojo.dto.GenerateImageDTO;
 import com.ms.pojo.vo.AttemptVO;
 import com.ms.pojo.vo.CreateTaskVO;
+import com.ms.pojo.vo.IterationNodeVO;
+import com.ms.pojo.vo.IterationTreeVO;
 import com.ms.pojo.vo.TaskVO;
 import com.ms.pojo.vo.ThreadVO;
 import com.ms.pojo.entity.AttemptEntity;
@@ -158,6 +160,17 @@ public class GenImgsServiceImpl implements GenImgsService {
             log.warn("重试失败，线程不存在，threadId={}", threadId);
             throw new IllegalArgumentException("Thread 不存在: " + threadId);
         }
+        // 迭代生成：校验父 Attempt 属于当前 Thread 且已完成，成功后新 Attempt 挂到父节点下形成分支。
+        String parentAttemptId = request.getParentAttemptId();
+        if (parentAttemptId != null && !parentAttemptId.isBlank()) {
+            AttemptEntity parent = dbMapper.findAttempt(parentAttemptId);
+            if (parent == null || !threadId.equals(parent.getThreadId())) {
+                throw new IllegalArgumentException("父迭代节点不存在或不属于当前任务");
+            }
+            if (!"succeeded".equals(parent.getStatus())) {
+                throw new IllegalArgumentException("父迭代节点尚未完成，无法基于它继续迭代");
+            }
+        }
         List<AttemptVO> attempts = new ArrayList<>();
         for (AttemptEntity item : stored) attempts.add(toAttemptVO(item, parseResultUrls(item.getResults())));
         Collections.reverse(attempts);
@@ -183,7 +196,7 @@ public class GenImgsServiceImpl implements GenImgsService {
             }
             dbMapper.updateThread(patch);
             attempts.add(attempt);
-            log.info("重试提交成功，threadId={} attemptNo={} cost={}", threadId, attemptNo, cost);
+            log.info("重试提交成功，threadId={} attemptNo={} parentNode={} cost={}", threadId, attemptNo, parentAttemptId, cost);
             return new ThreadVO(threadId, attempts);
         } catch (IOException | InterruptedException | RuntimeException e) {
             // 扣费已发生才需要返还；未扣费（如余额不足）时 refund 会因无 consume 流水自动跳过。
@@ -284,7 +297,8 @@ public class GenImgsServiceImpl implements GenImgsService {
                     attempt.modelName(),
                     attempt.size(),
                     attempt.quality(),
-                    attempt.outputFormat()
+                    attempt.outputFormat(),
+                    attempt.parentAttemptId()
                 ));
                 AttemptEntity update = new AttemptEntity();
                 update.setId(attempt.attemptId()); update.setStatus(task.status());
@@ -339,7 +353,8 @@ public class GenImgsServiceImpl implements GenImgsService {
             request.getModel(),
             request.getSize(),
             request.getQuality(),
-            request.getOutputFormat()
+            request.getOutputFormat(),
+            request.getParentAttemptId()
         );
     }
 
@@ -383,6 +398,131 @@ public class GenImgsServiceImpl implements GenImgsService {
         return updated;
     }
 
+    /**
+     * 构建指定 Thread 的迭代树：根节点是虚拟的"原图"节点（用户上传的参考图），
+     * 无父节点关系的 Attempt（首次生成与历史重试）都作为根的直接子节点，
+     * 迭代生成的 Attempt 按 parent_attempt_id 挂到对应父节点下。
+     */
+    @Override
+    public IterationTreeVO getIterationTree(String userId, String threadId) throws IOException {
+        requireThreadOwner(userId, threadId);
+        ThreadEntity thread = dbMapper.findThread(threadId);
+        // 按序号正序读取全部 Attempt；attempt_no=1 的即为首次生成。
+        List<AttemptEntity> stored = dbMapper.findAttemptsByThread(threadId, 1000000, 0);
+        if (stored == null || stored.isEmpty()) throw new IllegalArgumentException("Thread 不存在: " + threadId);
+        // 结果按 attempt_no 倒序返回，先反转成创建正序再构建树。
+        Collections.reverse(stored);
+        Map<String, AttemptEntity> byId = new LinkedHashMap<>();
+        for (AttemptEntity item : stored) byId.put(item.getId(), item);
+
+        // 一次遍历建立父子索引；孤儿节点（父 Attempt 已被清理）回挂到根，保证树完整可达。
+        Map<String, List<AttemptEntity>> children = new LinkedHashMap<>();
+        List<AttemptEntity> rootChildren = new ArrayList<>();
+        for (AttemptEntity item : stored) {
+            String parent = item.getParentAttemptId();
+            if (parent == null || parent.isBlank() || !byId.containsKey(parent)) {
+                rootChildren.add(item);
+            } else {
+                children.computeIfAbsent(parent, key -> new ArrayList<>()).add(item);
+            }
+        }
+
+        // 虚拟根节点：展示用户上传的原图，所有无父节点的 Attempt 都是它的子节点。
+        List<IterationNodeVO> nodes = new ArrayList<>();
+        List<String> rootChildIds = new ArrayList<>();
+        for (AttemptEntity child : rootChildren) rootChildIds.add(child.getId());
+        nodes.add(new IterationNodeVO(
+                ROOT_NODE_ID, null, "原图", firstReferenceImage(thread),
+                null, rootChildIds, null, null, null, null, null,
+                "succeeded", thread == null ? null : String.valueOf(thread.getCreatedAt()),
+                0, "initial", parseReferenceUrls(thread)
+        ));
+        for (AttemptEntity child : rootChildren) {
+            buildTreeNodes(child, children, 1, nodes);
+        }
+        AttemptEntity latest = stored.get(stored.size() - 1);
+        return new IterationTreeVO(threadId, thread == null ? "" : thread.getTitle(), ROOT_NODE_ID, latest.getId(), nodes);
+    }
+
+    /** 虚拟根节点（原图）的固定 ID，前端据此区分根与生成节点。 */
+    private static final String ROOT_NODE_ID = "root";
+
+    /** 递归展开迭代树：子节点按创建时间排列，深度从原图下第一层的 1 开始累加。 */
+    private void buildTreeNodes(AttemptEntity node, Map<String, List<AttemptEntity>> children, int depth, List<IterationNodeVO> output) {
+        List<AttemptEntity> nodeChildren = children.getOrDefault(node.getId(), List.of());
+        List<String> childIds = new ArrayList<>();
+        for (AttemptEntity child : nodeChildren) childIds.add(child.getId());
+        output.add(toIterationNode(node, depth, childIds));
+        for (AttemptEntity child : nodeChildren) {
+            buildTreeNodes(child, children, depth + 1, output);
+        }
+    }
+
+    /** 将 Attempt 数据库实体映射为迭代树节点 VO。 */
+    private IterationNodeVO toIterationNode(AttemptEntity item, int depth, List<String> childIds) {
+        List<String> urls = parseResultUrls(item.getResults());
+        String imageUrl = urls.isEmpty() ? "" : urls.get(0);
+        return new IterationNodeVO(
+                item.getId(),
+                item.getId(),
+                "#" + String.format("%02d", item.getAttemptNo() == null ? 0 : item.getAttemptNo()),
+                imageUrl,
+                item.getParentAttemptId(),
+                childIds,
+                item.getPrompt(),
+                null,
+                item.getModelName(),
+                item.getSize(),
+                item.getQuality(),
+                item.getStatus(),
+                item.getCreatedAt() == null ? null : item.getCreatedAt().toString(),
+                depth,
+                item.getParentAttemptId() == null || item.getParentAttemptId().isBlank() ? "initial" : "refine",
+                List.of()
+        );
+    }
+
+    /** 读取 Thread 的第一张原图地址，用于虚拟根节点展示；无参考图时返回空串。 */
+    private String firstReferenceImage(ThreadEntity thread) {
+        List<String> urls = parseReferenceUrls(thread);
+        return urls.isEmpty() ? "" : urls.get(0);
+    }
+
+    /** 从 Thread 的 reference_images JSON 中恢复原图地址列表；解析失败返回空列表。 */
+    private List<String> parseReferenceUrls(ThreadEntity thread) {
+        if (thread == null || thread.getReferenceImages() == null || thread.getReferenceImages().isBlank()) {
+            return List.of();
+        }
+        try {
+            List<?> stored = mapper.readValue(thread.getReferenceImages(), List.class);
+            List<String> urls = new ArrayList<>();
+            for (Object item : stored) {
+                if (item instanceof Map<?, ?> map && map.get("url") != null) {
+                    urls.add(String.valueOf(map.get("url")));
+                } else if (item instanceof String value && !value.isBlank()) {
+                    urls.add(value);
+                }
+            }
+            return urls;
+        } catch (IOException | RuntimeException e) {
+            log.warn("Thread 参考图记录格式异常，原图节点无图可展示，threadId={}", thread.getId());
+            return List.of();
+        }
+    }
+
+    /** 校验 Attempt 属主并返回其所属 Thread ID，供基于节点的迭代入口反查归属。 */
+    @Override
+    public String resolveThreadIdByAttempt(String userId, String attemptId) {
+        AttemptEntity attempt = attemptId == null ? null : dbMapper.findAttempt(attemptId);
+        if (attempt == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.NOT_FOUND, "迭代节点不存在");
+        }
+        // 复用 Thread 属主校验：父节点所属 Thread 必须属于当前用户。
+        requireThreadOwner(userId, attempt.getThreadId());
+        return attempt.getThreadId();
+    }
+
     private ThreadEntity toThread(String id, String userId, GenerateImageDTO request, List<String> referenceUrls) throws IOException {
         ThreadEntity thread = new ThreadEntity(); thread.setId(id); thread.setUserId(userId);
         // 默认任务名由前端生成；未提供时统一使用 "Untitled" 占位。
@@ -421,6 +561,8 @@ public class GenImgsServiceImpl implements GenImgsService {
         attempt.setRequestedCount(request.getN() == null ? 1 : request.getN()); attempt.setResults("[]");
         // Java 根据最终提交的参考图数量决定生成模式，避免前端值与实际数据不一致。
         attempt.setMode(referenceImageCount(request) > 0 ? "image-to-image" : "text-to-image");
+        // 迭代生成时记录父 Attempt，构建迭代树；普通重试该值为 null。
+        attempt.setParentAttemptId(request.getParentAttemptId());
         attempt.setExternalTaskId(source.taskId()); return attempt;
     }
 
@@ -437,7 +579,7 @@ public class GenImgsServiceImpl implements GenImgsService {
         return count;
     }
 
-    /** 将数据库 Attempt 映射为轮询接口使用的响应对象，保留可回填的生成参数。 */
+    /** 将数据库 Attempt 映射为轮询接口使用的响应对象，保留可回填的生成参数与迭代父节点。 */
     private static AttemptVO toAttemptVO(AttemptEntity source, List<String> imageUrls) {
         return new AttemptVO(
             source.getId(),
@@ -449,7 +591,8 @@ public class GenImgsServiceImpl implements GenImgsService {
             source.getModelName(),
             source.getSize(),
             source.getQuality(),
-            source.getOutputFormat()
+            source.getOutputFormat(),
+            source.getParentAttemptId()
         );
     }
 

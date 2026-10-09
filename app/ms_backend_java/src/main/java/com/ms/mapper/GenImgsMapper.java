@@ -14,7 +14,7 @@ import java.util.List;
 @Mapper
 public interface GenImgsMapper {
     String THREAD_COLUMNS = "id, user_id AS userId, title, reference_images AS referenceImages, status, attempt_count AS attemptCount, created_at AS createdAt, updated_at AS updatedAt, archived_at AS archivedAt";
-    String ATTEMPT_COLUMNS = "id, thread_id AS threadId, attempt_no AS attemptNo, status, prompt, model_name AS modelName, size, quality, output_format AS outputFormat, requested_count AS requestedCount, mode, results, external_task_id AS externalTaskId, error_code AS errorCode, error_message AS errorMessage, runtime_metadata AS runtimeMetadata, created_at AS createdAt, started_at AS startedAt, finished_at AS finishedAt, updated_at AS updatedAt";
+    String ATTEMPT_COLUMNS = "id, thread_id AS threadId, attempt_no AS attemptNo, status, prompt, model_name AS modelName, size, quality, output_format AS outputFormat, requested_count AS requestedCount, mode, parent_attempt_id AS parentAttemptId, results, external_task_id AS externalTaskId, error_code AS errorCode, error_message AS errorMessage, runtime_metadata AS runtimeMetadata, created_at AS createdAt, started_at AS startedAt, finished_at AS finishedAt, updated_at AS updatedAt";
     @Insert("""
             INSERT INTO threads (id, user_id, title, reference_images, status, attempt_count)
             VALUES (#{id}, #{userId}, #{title}, #{referenceImages}, #{status}, #{attemptCount})
@@ -31,10 +31,10 @@ public interface GenImgsMapper {
 
     @Insert("""
             INSERT INTO attempts (id, thread_id, attempt_no, status, prompt, model_name, size, quality, output_format,
-                                  requested_count, mode, results, external_task_id, error_code, error_message, runtime_metadata,
+                                  requested_count, mode, parent_attempt_id, results, external_task_id, error_code, error_message, runtime_metadata,
                                   started_at, finished_at)
             VALUES (#{id}, #{threadId}, #{attemptNo}, #{status}, #{prompt}, #{modelName}, #{size}, #{quality}, #{outputFormat},
-                    #{requestedCount}, #{mode}, #{results}, #{externalTaskId}, #{errorCode}, #{errorMessage}, #{runtimeMetadata},
+                    #{requestedCount}, #{mode}, #{parentAttemptId}, #{results}, #{externalTaskId}, #{errorCode}, #{errorMessage}, #{runtimeMetadata},
                     #{startedAt}, #{finishedAt})
             """)
     int insertAttempt(AttemptEntity attempt);
@@ -56,6 +56,10 @@ public interface GenImgsMapper {
 
     @Select("SELECT " + ATTEMPT_COLUMNS + " FROM attempts WHERE thread_id = #{threadId} ORDER BY attempt_no DESC LIMIT #{limit} OFFSET #{offset}")
     List<AttemptEntity> findAttemptsByThread(@Param("threadId") String threadId, @Param("limit") int limit, @Param("offset") int offset);
+
+    /** 查询指定父 Attempt 的直接子节点（按创建时间正序），用于构建迭代树。 */
+    @Select("SELECT " + ATTEMPT_COLUMNS + " FROM attempts WHERE parent_attempt_id = #{parentAttemptId} ORDER BY created_at ASC")
+    List<AttemptEntity> findAttemptsByParent(@Param("parentAttemptId") String parentAttemptId);
 
     /** 查询停留在 pending/running 且早于阈值的僵死 Attempt（含属主 userId），供兜底任务关闭并返还。 */
     @Select("""
