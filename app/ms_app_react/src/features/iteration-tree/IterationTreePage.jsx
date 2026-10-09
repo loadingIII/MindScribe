@@ -324,16 +324,14 @@ function IterationTreeScreenInner({
     didFocusRef.current = false;
   }, [initialData, setNodes, addChildNode]);
 
-  /** 复制节点提示词，方便用户在创作页或其它工具中粘贴调整。 */
-  const copyPrompt = useCallback(async () => {
-    if (!selectedNode?.prompt) { setToast("该节点没有提示词"); return; }
-    try {
-      await navigator.clipboard.writeText(selectedNode.prompt);
-      setToast("提示词已复制");
-    } catch {
-      setToast("复制失败，请手动选择文本");
-    }
-  }, [selectedNode, setToast]);
+  /** 整理：对画布当前全部节点重新计算横向树形布局，并回到适应画布的视野。 */
+  const autoArrange = useCallback(() => {
+    // 边的实时快照来自 ref：包含用户手动添加的空白节点连边。
+    const arranged = layoutTreeNodes(nodesRef.current, edgesRef.current);
+    setNodes(arranged);
+    // 等布局渲染完成后调整视野，把整棵树收进画布。
+    setTimeout(() => flow.fitView({ padding: 0.2, duration: 400 }), 60);
+  }, [setNodes, flow]);
 
   return (
     <div className="iteration-tree-body" ref={wrapperRef}>
@@ -349,8 +347,9 @@ function IterationTreeScreenInner({
           </div>
         </div>
         <div className="topbar-right">
-          <button type="button" className="topbar-action" onClick={copyPrompt} disabled={!selectedNode?.prompt}>
-            复制提示词
+          {/* 整理：忽略手动拖动的位置，对当前全部节点重新计算横向树形布局。 */}
+          <button type="button" className="topbar-action" onClick={autoArrange}>
+            整理
           </button>
           <button type="button" className="topbar-action" onClick={() => flow.fitView({ padding: 0.2, duration: 400 })}>
             适应画布
@@ -397,8 +396,6 @@ function IterationTreeScreenInner({
           node={selectedNode}
           isOpen={panelOpen}
           onToggle={onTogglePanel}
-          onContinue={onContinue}
-          onClose={() => onSelectNode("")}
         />
       </div>
     </div>

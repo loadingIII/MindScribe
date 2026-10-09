@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowUpRight, Check, PanelRight, Pencil, Plus, Sparkles, UserRound, WandSparkles, Zap } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Check, GitBranch, PanelRight, Plus, Sparkles, UserRound, WandSparkles, Zap } from "lucide-react";
 import { image } from "../assets/mockData";
 import { ROUTES } from "../config/routes";
 import { ZH_CN } from "../locales/zh-CN";
@@ -28,32 +28,29 @@ export default function AppShell({ onLogout }) {
 
   // 创作页顶栏右侧控件状态：通过自定义事件与 LegacyApp 同步
   const [taskName, setTaskName] = useState("");
-  const [editingTaskName, setEditingTaskName] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [canPublish, setCanPublish] = useState(false);
+  // 当前任务的线程 ID：迭代树入口按钮据此跳转；无任务时按钮置灰。
+  const [topbarThreadId, setTopbarThreadId] = useState("");
 
   useEffect(() => {
     const handleTaskNameUpdate = (event) => setTaskName(event.detail.taskName || "");
+    const handleThreadUpdate = (event) => setTopbarThreadId(event.detail.threadId || "");
     const handleWorkspaceToggle = (event) => setWorkspaceOpen(event.detail.open);
     const handlePublishState = (event) => setCanPublish(event.detail.canPublish);
-    
+
     window.addEventListener("topbar-task-name-update", handleTaskNameUpdate);
+    window.addEventListener("topbar-thread-update", handleThreadUpdate);
     window.addEventListener("topbar-workspace-state", handleWorkspaceToggle);
     window.addEventListener("topbar-publish-state", handlePublishState);
-    
+
     return () => {
       window.removeEventListener("topbar-task-name-update", handleTaskNameUpdate);
+      window.removeEventListener("topbar-thread-update", handleThreadUpdate);
       window.removeEventListener("topbar-workspace-state", handleWorkspaceToggle);
       window.removeEventListener("topbar-publish-state", handlePublishState);
     };
   }, []);
-
-  function saveTaskName() {
-    if (taskName.trim()) {
-      window.dispatchEvent(new CustomEvent("topbar-save-task-name", { detail: { taskName: taskName.trim() } }));
-    }
-    setEditingTaskName(false);
-  }
 
   function toggleWorkspace() {
     const newState = !workspaceOpen;
@@ -84,58 +81,36 @@ export default function AppShell({ onLogout }) {
       <header className={`topbar ${isCreateHome ? "create-topbar" : ""} ${isPrompts ? "prompt-topbar" : ""} ${isIterationTree ? "is-hidden" : ""}`}>
         {isCreateHome ? (
           <>
-            {/* 创作页左侧：任务名称编辑区 */}
+            {/* 创作页左侧：任务名称展示（纯文本，不提供编辑） */}
             <div className="topbar-task-name">
-              {taskName ? (
-                <>
-                  <input 
-                    className="task-name-input" 
-                    value={taskName} 
-                    maxLength={40}
-                    readOnly={!editingTaskName}
-                    onChange={(e) => setTaskName(e.target.value)}
-                    onBlur={saveTaskName}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.currentTarget.blur();
-                        setEditingTaskName(false);
-                      }
-                    }}
-                    aria-label="任务名称"
-                  />
-                  <button 
-                    type="button" 
-                    className="task-name-edit-btn" 
-                    title={editingTaskName ? "保存" : "编辑"}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      if (editingTaskName) {
-                        saveTaskName();
-                      } else {
-                        setEditingTaskName(true);
-                      }
-                    }}
-                  >
-                    {editingTaskName ? <Check size={14} /> : <Pencil size={14} />}
-                  </button>
-                </>
-              ) : (
-                <span className="task-name-placeholder">未命名任务</span>
-              )}
+              {taskName
+                ? <h1 className="task-name-display" title={taskName}>{taskName}</h1>
+                : <span className="task-name-placeholder">未命名任务</span>}
             </div>
-            {/* 创作页右侧：新建任务、发布到模板、工作区 */}
+            {/* 创作页右侧：新建任务、迭代树、发布到模板、工作区 */}
             <div className="topbar-actions">
-              <button 
-                className="action-btn action-new" 
-                type="button" 
+              <button
+                className="action-btn action-new"
+                type="button"
                 onClick={() => window.dispatchEvent(new CustomEvent("start-new-creation"))}
               >
                 <Plus size={16} />
                 <span>新建任务</span>
               </button>
-              <button 
-                className="action-btn action-publish" 
-                type="button" 
+              {/* 迭代树入口：仅在已有任务时可用，跳转到当前任务的迭代树页面。 */}
+              <button
+                className="action-btn action-iteration-tree"
+                type="button"
+                disabled={!topbarThreadId}
+                title={topbarThreadId ? "查看当前任务的迭代树" : "开始创作后可查看迭代树"}
+                onClick={() => navigate(`${ROUTES.iterationTree}/${topbarThreadId}`)}
+              >
+                <GitBranch size={16} />
+                <span>迭代树</span>
+              </button>
+              <button
+                className="action-btn action-publish"
+                type="button"
                 onClick={openPublishModal}
                 disabled={!canPublish}
               >

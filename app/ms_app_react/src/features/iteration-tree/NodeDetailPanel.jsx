@@ -1,6 +1,6 @@
 /** 节点详情侧栏：画布右侧固定展示选中节点的图片、提示词、参数，并提供"从这里继续创作"入口。 */
 import { useState } from "react";
-import { ChevronDown, Download, Maximize2, RotateCw, X } from "lucide-react";
+import { ChevronDown, Download, Maximize2, X } from "lucide-react";
 
 /** 将 ISO 时间格式化为中文可读文本；无效值显示"暂无"。 */
 function formatCreatedAt(value) {
@@ -12,7 +12,7 @@ function formatCreatedAt(value) {
   }).replace(/\//g, "-");
 }
 
-export default function NodeDetailPanel({ node, isOpen, onToggle, onContinue, onClose }) {
+export default function NodeDetailPanel({ node, isOpen, onToggle }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   if (!node) return null;
 
@@ -78,18 +78,6 @@ export default function NodeDetailPanel({ node, isOpen, onToggle, onContinue, on
                   </div>
                 </div>
               )}
-
-              <div className="panel-actions">
-                <button
-                  type="button"
-                  className="primary-action"
-                  onClick={() => onContinue(node)}
-                  disabled={!node.isSucceeded}
-                  title={node.status === "succeeded" ? "以该结果图为参考图继续创作" : "仅已生成的节点可以继续迭代"}
-                >
-                  <RotateCw size={15} />从这里继续创作
-                </button>
-              </div>
             </div>
           </div>
         )}

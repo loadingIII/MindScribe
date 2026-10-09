@@ -297,7 +297,8 @@ public class GenImgsServiceImpl implements GenImgsService {
                     attempt.modelName(),
                     attempt.size(),
                     attempt.quality(),
-                    attempt.outputFormat()
+                    attempt.outputFormat(),
+                    attempt.parentAttemptId()
                 ));
                 AttemptEntity update = new AttemptEntity();
                 update.setId(attempt.attemptId()); update.setStatus(task.status());
@@ -352,7 +353,8 @@ public class GenImgsServiceImpl implements GenImgsService {
             request.getModel(),
             request.getSize(),
             request.getQuality(),
-            request.getOutputFormat()
+            request.getOutputFormat(),
+            request.getParentAttemptId()
         );
     }
 
@@ -577,7 +579,7 @@ public class GenImgsServiceImpl implements GenImgsService {
         return count;
     }
 
-    /** 将数据库 Attempt 映射为轮询接口使用的响应对象，保留可回填的生成参数。 */
+    /** 将数据库 Attempt 映射为轮询接口使用的响应对象，保留可回填的生成参数与迭代父节点。 */
     private static AttemptVO toAttemptVO(AttemptEntity source, List<String> imageUrls) {
         return new AttemptVO(
             source.getId(),
@@ -589,7 +591,8 @@ public class GenImgsServiceImpl implements GenImgsService {
             source.getModelName(),
             source.getSize(),
             source.getQuality(),
-            source.getOutputFormat()
+            source.getOutputFormat(),
+            source.getParentAttemptId()
         );
     }
 

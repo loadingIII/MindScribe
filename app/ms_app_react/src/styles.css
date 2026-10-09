@@ -4397,132 +4397,66 @@ body {
   flex:0 1 auto;
   min-width:0;
 }
-.task-name-input {
-  color: var(--neo-text);
-  font: 600 20px/1.3 var(--serif);
-  letter-spacing: -.02em;
-  border: none;
-  background: transparent;
-  outline: 0;
-  padding: 12px 16px;
-  min-width: 200px;
-  max-width: 480px;
-  border-radius: 16px;
-  transition: all .2s;
-}
-.task-name-input:read-only {
-  cursor: default;
-  background: transparent;
-}
-.task-name-input:not(:read-only) {
-  color: var(--neo-primary);
-  background: var(--neo-surface);
-  box-shadow: var(--neo-shadow-pressed);
-}
-.task-name-input:not(:read-only):focus {
-  box-shadow: var(--neo-shadow-inset-deep);
-  outline: 2px solid rgba(136, 153, 204, 0.2);
-  outline-offset: -2px;
-}
 .task-name-placeholder {
   color:var(--muted);
   font:500 20px/1.3 var(--serif);
   letter-spacing:-.02em;
 }
-.task-name-edit-btn {
-  display:grid;
-  place-items:center;
-  width:32px;
-  height:32px;
-  flex-shrink:0;
-  color:var(--muted);
-  border:1px solid transparent;
-  border-radius:8px;
-  background:transparent;
-  transition:all .2s;
-  cursor:pointer;
-}
-.task-name-edit-btn:hover {
-  color:var(--ink);
-  border-color:var(--line);
-  background:rgba(255,255,255,.6);
+/* 任务名称纯文本展示：顶栏左上的当前任务标识，不可编辑。 */
+.task-name-display {
+  margin:0;
+  max-width:420px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:var(--neo-text);
+  font:600 18px/1.3 var(--serif);
+  letter-spacing:-.02em;
 }
 
-/* 右侧操作按钮组 */
+/* 右侧操作按钮组：方正、统一灰色的克制风格。 */
 .topbar-actions {
   display:flex;
   align-items:center;
-  gap:10px;
+  gap:8px;
   flex-shrink:0;
 }
 .action-btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 10px 18px;
-  border: 0;
-  border-radius: 18px;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
   font: 600 13px/1 var(--sans);
   letter-spacing: .01em;
   cursor: pointer;
   white-space: nowrap;
-  box-shadow: var(--neo-shadow-raised);
-  background: var(--neo-surface);
+  /* 统一灰色系：浅灰底、深灰字，靠描边区分层级，不使用彩色渐变。 */
+  background: #FFFFFF;
   color: var(--neo-text);
+  box-shadow: none;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.action-btn:hover:not(:disabled) {
+  background: var(--neo-raised);
+  border-color: var(--muted);
+}
+.action-btn:active:not(:disabled) {
+  background: var(--neo-pressed);
 }
 .action-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.45;
   cursor: not-allowed;
   pointer-events: none;
-  box-shadow: var(--neo-shadow-sm);
 }
 
-/* 新建任务：渐变强调色 */
-.action-new {
-  color: #FFFFFF;
-  background: linear-gradient(135deg, #8899CC 0%, #A8B8E8 100%);
-  box-shadow: var(--neo-shadow-raised);
-}
-.action-new:hover:not(:disabled) {
-  background: linear-gradient(135deg, #7788BB 0%, #98A8D8 100%);
-  box-shadow: var(--neo-shadow-hover);
-  transform: translateY(-1px);
-}
-.action-new:active:not(:disabled) {
-  box-shadow: var(--neo-shadow-pressed);
-  transform: translateY(0);
-}
-
-/* 发布到模板：紫色渐变 */
-.action-publish {
-  color: #FFFFFF;
-  background: linear-gradient(135deg, #B8A8E8 0%, #C8B8F0 100%);
-  box-shadow: var(--neo-shadow-raised);
-}
-.action-publish:hover:not(:disabled) {
-  background: linear-gradient(135deg, #A898D8 0%, #B8A8E0 100%);
-  box-shadow: var(--neo-shadow-hover);
-  transform: translateY(-1px);
-}
-.action-publish:active:not(:disabled) {
-  box-shadow: var(--neo-shadow-pressed);
-  transform: translateY(0);
-}
-
-/* 工作区：内凹风格，激活时更明显的内凹 */
-.action-workspace {
-  color: var(--neo-text);
-  border: none;
-  background: var(--neo-surface);
-  box-shadow: var(--neo-shadow-raised);
-}
-.action-workspace:hover:not(:disabled) {
-  box-shadow: var(--neo-shadow-hover);
-}
+/* 工作区按钮：打开时以深灰反色提示激活态。 */
 .action-workspace.is-active {
-  color: var(--neo-accent);
-  background: var(--neo-surface);
-  box-shadow: var(--neo-shadow-pressed);
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #FFFFFF;
 }
 
 /* 工作区打开时的微挤压适配 */
@@ -4533,23 +4467,11 @@ body {
   flex: 0 1 auto;
   min-width: 0;
 }
-.app-frame:has(.unified-rail) .task-name-input {
+.app-frame:has(.unified-rail) .task-name-display {
   max-width: 240px;
 }
 .app-frame:has(.unified-rail) .topbar-actions {
-  gap: 10px;
-}
-.app-frame:has(.unified-rail) .action-btn {
-  padding-left: 18px;
-  padding-right: 18px;
-}
-.app-frame:has(.unified-rail) .action-publish {
-  padding-left: 16px;
-  padding-right: 16px;
-}
-.app-frame:has(.unified-rail) .action-workspace {
-  padding-left: 14px;
-  padding-right: 14px;
+  gap: 8px;
 }
 
 /* 响应式：工作区侧栏打开时的布局优化 */
@@ -4557,7 +4479,7 @@ body {
   .create-topbar {
     padding:0 20px;
   }
-  .task-name-input {
+  .task-name-display {
     max-width:320px;
   }
   .topbar-actions {
