@@ -10,11 +10,13 @@
   },
   "dependencies": {
     "@gsap/react": "latest",
+    "dagre": "^0.8.5",
     "gsap": "latest",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "react-router-dom": "latest"
+    "react-router-dom": "latest",
+    "reactflow": "^11.11.4"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "latest",

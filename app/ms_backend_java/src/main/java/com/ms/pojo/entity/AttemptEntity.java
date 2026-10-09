@@ -18,6 +18,8 @@ public class AttemptEntity {
     private String outputFormat;
     private Integer requestedCount;
     private String mode;
+    /** 迭代父 Attempt ID；NULL 表示该 Thread 的首个尝试。 */
+    private String parentAttemptId;
     private String results;
     private String externalTaskId;
     private String errorCode;

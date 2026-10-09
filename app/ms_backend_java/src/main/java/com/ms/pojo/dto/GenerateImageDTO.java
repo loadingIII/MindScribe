@@ -17,6 +17,9 @@ public class GenerateImageDTO {
     /** 重试时直接复用已上传的 OSS 参考图地址。 */
     @JsonProperty("reference_image_urls")
     private List<String> referenceImageUrls;
+    /** 迭代生成的父 Attempt ID：指定后新 Attempt 挂到该节点下，形成迭代树分支。 */
+    @JsonProperty("parent_attempt_id")
+    private String parentAttemptId;
     private String model;
     private String size;
     private String quality;

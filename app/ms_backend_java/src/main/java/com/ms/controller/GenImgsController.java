@@ -84,6 +84,33 @@ public class GenImgsController {
         return Map.of("id", threadId, "title", request.title().trim());
     }
 
+    /** 查询 Thread 的迭代树：以首个 Attempt 为根，按父节点关系展开完整分支。 */
+    @GetMapping("/threads/{threadId}/iteration-tree")
+    public com.ms.pojo.vo.IterationTreeVO getIterationTree(
+            @PathVariable String threadId,
+            HttpServletRequest servletRequest) throws IOException {
+        log.debug("查询迭代树，threadId={}", threadId);
+        return service.getIterationTree(currentUserId(servletRequest), threadId);
+    }
+
+    /**
+     * 基于指定节点继续迭代：与重试共用同一 Attempt 创建通道，
+     * 请求中的 parent_attempt_id 指定父节点，新结果将挂到迭代树的对应分支下。
+     */
+    @PostMapping(value = "/nodes/{nodeId}/iterate", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<ThreadVO> iterateFromNode(
+            @PathVariable String nodeId,
+            HttpServletRequest servletRequest,
+            @ModelAttribute GenerateImageDTO request) throws IOException, InterruptedException {
+        String userId = currentUserId(servletRequest);
+        log.info("基于节点迭代，nodeId={} userId={}", nodeId, userId);
+        // 路径中的节点 ID 为准：覆盖请求体，避免两者不一致导致挂错分支。
+        request.setParentAttemptId(nodeId);
+        // 父 Attempt 挂在某个 Thread 下，从库中反查 Thread ID 后转发给重试通道。
+        String threadId = service.resolveThreadIdByAttempt(userId, nodeId);
+        return ResponseEntity.accepted().body(service.retry(userId, threadId, request));
+    }
+
     /** JWT 拦截器已完成认证，这里只读取其写入的用户 ID。 */
     private String currentUserId(HttpServletRequest request) {
         Object userId = request.getAttribute("userId");

@@ -6,6 +6,7 @@ import { ROUTES } from "./config/routes";
 import { WORKSPACE_OWNER_KEY } from "./config/constants";
 import { setActiveDraftUser } from "./utils/draftStorage";
 import CreatePage from "./pages/CreatePage";
+import IterationTreePage from "./pages/IterationTreePage";
 import ProfilePage from "./pages/ProfilePage";
 import PromptsPage from "./pages/PromptsPage";
 import LoginPage from "./pages/LoginPage";
@@ -88,6 +89,7 @@ export default function App() {
     <Route element={user ? <AppShell onLogout={() => setUser(null)} /> : <Navigate to={ROUTES.login} replace />}>
       <Route path={ROUTES.create} element={<CreatePage />} />
       <Route path="/create/prompt-builder" element={<ImgsPromptPage />} />
+      <Route path="/create/iteration-tree/:threadId" element={<IterationTreePage />} />
       <Route path={ROUTES.prompts} element={<PromptsPage />} />
       <Route path="/library" element={<Navigate to={ROUTES.create} replace />} />
       <Route path="/community" element={<Navigate to={ROUTES.create} replace />} />

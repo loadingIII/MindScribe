@@ -19,6 +19,8 @@ export default function AppShell({ onLogout }) {
   const navigate = useNavigate();
   const isCreateHome = location.pathname === ROUTES.create;
   const isPromptBuilder = location.pathname === "/create/prompt-builder";
+  // 迭代树页使用自己的全屏顶栏（任务信息与视图操作都在页内），隐藏全局顶栏避免双层叠加。
+  const isIterationTree = location.pathname.startsWith("/create/iteration-tree");
   const isPrompts = location.pathname.startsWith(ROUTES.prompts);
   const isProfile = location.pathname.startsWith(ROUTES.profile);
   // 顶栏标题："我的"页展示"个人中心"，其余按导航匹配。
@@ -79,7 +81,7 @@ export default function AppShell({ onLogout }) {
       <div className="nav-bottom"><NavLink to={ROUTES.profile} className={({ isActive }) => `account-dock ${isActive ? "active" : ""}`}><img src={user?.avatarUrl || image("creator-avatar", 80, 80)} alt="我的头像" /><span><b>{user?.displayName || "未登录"}</b><i><Zap size={12} /> {credits.toLocaleString()} {ZH_CN.creditsUnit}</i></span><span className="account-arrow">↗</span></NavLink><button className="logout-button" onClick={logout}>退出登录</button></div>
     </aside>
     <main className={`app-main ${workspaceOpen ? "workspace-open" : ""}`}>
-      <header className={`topbar ${isCreateHome ? "create-topbar" : ""} ${isPrompts ? "prompt-topbar" : ""}`}>
+      <header className={`topbar ${isCreateHome ? "create-topbar" : ""} ${isPrompts ? "prompt-topbar" : ""} ${isIterationTree ? "is-hidden" : ""}`}>
         {isCreateHome ? (
           <>
             {/* 创作页左侧：任务名称编辑区 */}
