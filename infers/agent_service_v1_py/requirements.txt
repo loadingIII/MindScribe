@@ -1,0 +1,18 @@
+# 智能体服务（agent_service_v1_py）依赖
+#
+# 安装：pip install -r infers/agent_service_v1_py/requirements.txt
+
+# Web 框架与 ASGI 服务器
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+
+# LLM 编排框架
+langchain>=1.0
+langchain-openai>=1.0
+langgraph>=1.0
+
+# 配置加载
+PyYAML>=6.0
+
+# 测试框架
+pytest>=8.0

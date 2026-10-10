@@ -1,0 +1,6 @@
+# 本地缓存与密钥文件不入库
+__pycache__/
+*.pyc
+.env
+config.yml
+.pytest_cache/

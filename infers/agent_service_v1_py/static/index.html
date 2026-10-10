@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MindScribe 智能助手</title>
+<style>
+  /* ============================================================
+     编辑部式黑白极简：白纸 + 墨色 + 细线，衬线标题、等宽标注。
+     无阴影、无彩色，层级全部由字重、字号与细线完成。
+     ============================================================ */
+  :root {
+    --paper: #ffffff;        /* 纸面 */
+    --ink: #111111;          /* 主墨色 */
+    --ink-60: #5c5c5c;       /* 次级文字 */
+    --ink-40: #9a9a9a;       /* 弱化文字 */
+    --line: #e4e4e4;         /* 细分隔线 */
+    --line-dark: #111111;    /* 强调线 */
+    --serif: "Noto Serif SC", "Songti SC", "SimSun", serif;
+    --sans: "Manrope", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+    --mono: "DM Mono", "JetBrains Mono", Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { height: 100%; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--paper);
+    color: var(--ink);
+    display: flex; justify-content: center;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app {
+    width: 100%; max-width: 760px;
+    height: 100vh;
+    display: flex; flex-direction: column;
+    border-left: 1px solid var(--line);   /* 两侧细线收束版心 */
+    border-right: 1px solid var(--line);
+  }
+
+  /* ---------- 页头：刊名式排版 ---------- */
+  header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 28px 32px 20px;
+    border-bottom: 2px solid var(--line-dark);   /* 一条粗墨线定调 */
+  }
+  header h1 {
+    font-family: var(--serif);
+    font-size: 22px; font-weight: 700; letter-spacing: 0.02em;
+  }
+  header h1 .issue-no {
+    font-family: var(--mono);
+    font-size: 11px; color: var(--ink-40); margin-left: 10px; letter-spacing: 0.08em;
+  }
+
+  /* ---------- 模式切换：下划线式选项卡 ---------- */
+  .modes { display: flex; gap: 4px; }
+  .modes button {
+    border: none; background: none; cursor: pointer;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em;
+    color: var(--ink-40);
+    padding: 6px 10px 8px;
+    border-bottom: 1.5px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  .modes button:hover { color: var(--ink); }
+  .modes button.active {
+    color: var(--ink);
+    border-bottom-color: var(--line-dark);
+  }
+
+  /* ---------- 消息区：文档式排版 ---------- */
+  #log {
+    flex: 1; overflow-y: auto;
+    padding: 28px 32px;
+    display: flex; flex-direction: column; gap: 26px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line) transparent;
+  }
+  #log::-webkit-scrollbar { width: 4px; }
+  #log::-webkit-scrollbar-thumb { background: var(--line); }
+
+  .msg { max-width: 88%; line-height: 1.75; font-size: 14.5px; }
+  .msg.user {
+    align-self: flex-end;
+    text-align: right;
+  }
+  /* 用户消息：前缀等宽符号 + 右对齐，无气泡 */
+  .msg.user::before {
+    content: "— ";
+    color: var(--ink-40); font-family: var(--mono); font-size: 12px;
+  }
+  .msg.bot {
+    align-self: flex-start;
+  }
+  .msg .speaker {
+    display: block;
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.14em;
+    color: var(--ink-40); text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .msg.user .speaker { display: none; }
+  .msg .route-chip {
+    display: inline-block;
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em;
+    color: var(--ink); border: 1px solid var(--ink);
+    padding: 1px 8px 2px; margin-bottom: 8px;
+  }
+
+  /* ---------- 提案卡片：图纸式线框 ---------- */
+  .proposal-card {
+    align-self: flex-start; max-width: 92%;
+    border: 1px solid var(--line-dark);
+    padding: 18px 20px;
+    display: flex; flex-direction: column; gap: 10px;
+    position: relative;
+  }
+  /* 卡片角标：等宽编号，呼应图纸标注 */
+  .proposal-card::after {
+    content: "FIG. 01";
+    position: absolute; top: -9px; right: 14px;
+    background: var(--paper); padding: 0 6px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    color: var(--ink-40);
+  }
+  .proposal-card h3 {
+    font-family: var(--serif); font-size: 15px; font-weight: 700;
+  }
+  .proposal-card .summary { font-size: 13.5px; line-height: 1.6; }
+  .proposal-card .meta {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
+    color: var(--ink-60);
+    display: flex; gap: 14px; flex-wrap: wrap;
+  }
+  .proposal-card .prompt-text {
+    font-size: 12.5px; line-height: 1.7; color: var(--ink-60);
+    border-left: 2px solid var(--line);
+    padding-left: 12px;
+    max-height: 110px; overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .proposal-card button {
+    align-self: flex-start;
+    border: none; cursor: pointer;
+    background: var(--ink); color: var(--paper);
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em;
+    padding: 10px 22px;
+    transition: opacity .15s;
+  }
+  .proposal-card button:hover:not(:disabled) { opacity: 0.82; }
+  .proposal-card button:disabled {
+    background: var(--paper); color: var(--ink-40);
+    border: 1px solid var(--line); cursor: default;
+  }
+
+  /* ---------- 输入区：整宽下划线输入 ---------- */
+  form {
+    display: flex; align-items: flex-end; gap: 14px;
+    padding: 18px 32px 26px;
+    border-top: 1px solid var(--line);
+  }
+  #input {
+    flex: 1;
+    border: none; outline: none;
+    background: var(--paper); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.5;
+    padding: 10px 2px;
+    border-bottom: 1.5px solid var(--ink);
+    transition: border-color .15s;
+  }
+  #input::placeholder { color: var(--ink-40); }
+  #input:focus { border-bottom-color: var(--line-dark); }
+  #send {
+    border: none; cursor: pointer;
+    background: var(--ink); color: var(--paper);
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.2em;
+    padding: 11px 20px 11px 24px;
+    transition: opacity .15s;
+  }
+  #send:hover:not(:disabled) { opacity: 0.82; }
+  #send:disabled { opacity: 0.35; cursor: default; }
+
+  /* ---------- 思考中光标闪烁 ---------- */
+  .thinking-cursor {
+    display: inline-block; width: 9px; height: 16px;
+    background: var(--ink); vertical-align: -2px;
+    animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>小麦智能助手<span class="issue-no">AGENT&nbsp;/&nbsp;V1</span></h1>
+    <div class="modes">
+      <button data-mode="auto" class="active">AUTO</button>
+      <button data-mode="chat">SUPPORT</button>
+      <button data-mode="gen_imgs">IMAGE</button>
+    </div>
+  </header>
+  <div id="log"></div>
+  <form id="form">
+    <input id="input" placeholder="试试：「查我的积分」 或 「画一张赛博朋克风格的猫」" autocomplete="off" />
+    <button id="send" type="submit">SEND</button>
+  </form>
+</div>
+
+<script>
+// 会话状态：历史消息与当前模式，页面刷新即重置（联调页不持久化）
+const history = [];
+let mode = "auto";
+
+const logEl = document.getElementById("log");
+const formEl = document.getElementById("form");
+const inputEl = document.getElementById("input");
+const sendEl = document.getElementById("send");
+
+// 模式切换按钮
+document.querySelectorAll(".modes button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    mode = btn.dataset.mode;
+    document.querySelectorAll(".modes button").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+  });
+});
+
+const SPEAKER_LABELS = { user: "YOU", bot: "WHEAT" };
+const ROUTE_LABELS = { chat: "SUPPORT", gen_imgs: "IMAGE", auto: "AUTO" };
+
+function addMsg(cls, text, routeChip) {
+  const div = document.createElement("div");
+  div.className = "msg " + cls;
+
+  // 说话人标注（用户消息不显示）
+  const speaker = document.createElement("span");
+  speaker.className = "speaker";
+  speaker.textContent = SPEAKER_LABELS[cls] || "";
+  div.appendChild(speaker);
+
+  // auto 模式下显示路由结果标注
+  if (routeChip) {
+    const chip = document.createElement("span");
+    chip.className = "route-chip";
+    chip.textContent = "→ " + (ROUTE_LABELS[routeChip] || routeChip);
+    div.appendChild(chip);
+    div.appendChild(document.createElement("br"));
+  }
+
+  div.appendChild(document.createTextNode(text));
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+  return div;
+}
+
+// 思考中占位：文字 + 闪烁光标
+function showThinking(el) {
+  el.textContent = "";
+  el.appendChild(document.createTextNode("思考中 "));
+  const cursor = document.createElement("span");
+  cursor.className = "thinking-cursor";
+  el.appendChild(cursor);
+}
+
+// 渲染生图提案确认卡片（图纸式线框）
+function addProposalCard(proposal) {
+  const card = document.createElement("div");
+  card.className = "proposal-card";
+
+  const title = document.createElement("h3");
+  title.textContent = "生图提案";
+
+  const summary = document.createElement("div");
+  summary.className = "summary";
+  summary.textContent = proposal.summary || "（无描述）";
+
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  const sizeLabel = { "1024x1024": "方形", "1024x1536": "竖版", "1536x1024": "横版" };
+  meta.textContent = `${sizeLabel[proposal.size] || proposal.size} · ${proposal.n} 张 · ${proposal.model}`;
+
+  const promptText = document.createElement("div");
+  promptText.className = "prompt-text";
+  promptText.textContent = proposal.prompt;
+
+  const btn = document.createElement("button");
+  btn.textContent = "立即生成";
+  btn.addEventListener("click", () => {
+    btn.disabled = true;
+    btn.textContent = "已确认 · 待接入生图服务";
+  });
+
+  card.append(title, summary, meta, promptText, btn);
+  logEl.appendChild(card);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+formEl.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = inputEl.value.trim();
+  if (!text || sendEl.disabled) return;
+
+  inputEl.value = "";
+  sendEl.disabled = true;
+  addMsg("user", text);
+  history.push({ role: "user", content: text });
+
+  // 立即显示"思考中"占位，避免用户感觉页面没反应
+  const botMsg = addMsg("bot", "", mode === "auto" ? "auto" : null);
+  showThinking(botMsg);
+  let acc = "";
+  let firstToken = true;
+  let gotError = false;
+
+  try {
+    const resp = await fetch("/agent/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: history,
+        user_id: "user123",
+        user_name: "演示用户",
+        mode: mode,
+      }),
+    });
+
+    // 非 200 响应直接把状态展示出来，不再静默
+    if (!resp.ok) {
+      botMsg.textContent = "服务返回错误：" + resp.status + " " + resp.statusText;
+      return;
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    // 手动解析 SSE：按空行分隔事件帧
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop();
+
+      for (const frame of frames) {
+        const eventLine = frame.split("\n").find((l) => l.startsWith("event: "));
+        const dataLine = frame.split("\n").find((l) => l.startsWith("data: "));
+        if (!eventLine || !dataLine) continue;
+        const event = eventLine.slice(7).trim();
+        const data = JSON.parse(dataLine.slice(6));
+
+        if (event === "token" && data.delta) {
+          // 收到第一个 token 时清掉"思考中"占位
+          if (firstToken) {
+            botMsg.textContent = "";
+            firstToken = false;
+          }
+          acc += data.delta;
+          botMsg.textContent = acc;
+          logEl.scrollTop = logEl.scrollHeight;
+        } else if (event === "action") {
+          if (data.action === "generate_images") addProposalCard(data.proposal);
+        } else if (event === "error") {
+          botMsg.textContent = (acc ? acc + "\n" : "") + "[出错了] " + data.message;
+        }
+      }
+    }
+
+    // 整个流结束仍没有任何回复且未发生过错误时，才提示空回复
+    if (!acc && !gotError) {
+      botMsg.textContent = "（本次没有生成回复内容，请重试或查看服务日志）";
+    } else if (acc) {
+      history.push({ role: "assistant", content: acc });
+    }
+  } catch (err) {
+    botMsg.textContent = "请求失败：" + err.message
+      + "\n请确认服务已启动：uvicorn infers.agent_service_v1_py.app:app --port 8100";
+  } finally {
+    sendEl.disabled = false;
+    inputEl.focus();
+  }
+});
+</script>
+</body>
+</html>

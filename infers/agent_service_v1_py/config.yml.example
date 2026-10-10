@@ -1,0 +1,16 @@
+# 智能体服务配置。敏感值（api_key）通过 ${AGENT_API_KEY} 占位符
+# 从同目录 .env 或进程环境变量注入，不要把真实密钥写进本文件。
+
+llm:
+  # 任何 OpenAI 兼容服务端点均可
+  base_url: ${AGENT_API_BASE}
+  api_key: ${AGENT_API_KEY}
+  # 客服与生图智能体使用的对话模型
+  chat_model: ${AGENT_CHAT_MODEL}
+  # 意图路由模型（建议用轻量/关思维链的模型）
+  router_model: ${AGENT_ROUTER_MODEL}
+
+# 服务监听配置（仅 documentation 说明用，实际由 uvicorn 命令行参数决定）
+server:
+  host: 127.0.0.1
+  port: 8100

@@ -23,7 +23,7 @@ def propose_image_generation(
     summary: str = "",
     size: str = "1024x1024",
     n: int = 1,
-    runtime: ToolRuntime[ChatContext] | None = None,
+    runtime: ToolRuntime[ChatContext] = None,
 ) -> str:
     """向用户提交一份图片生成提案。收集齐用户的创作需求后调用此工具。
 
