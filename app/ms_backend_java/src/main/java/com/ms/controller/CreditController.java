@@ -3,10 +3,7 @@ package com.ms.controller;
 import com.ms.mapper.CreditMapper;
 import com.ms.service.CreditService;
 import com.ms.service.PricingService;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -28,7 +25,7 @@ public class CreditController {
 
     /** 返回当前登录用户的积分余额。 */
     @GetMapping("/balance")
-    public Map<String, Object> balance(@org.springframework.web.bind.annotation.RequestAttribute("userId") String userId) {
+    public Map<String, Object> balance(@RequestAttribute("userId") String userId) {
         return Map.of("balance", creditService.balance(userId));
     }
 
@@ -38,7 +35,7 @@ public class CreditController {
      * 前端传入的 mode 仅作为请求体里未携带参考图场景的补充，不一致时以参考图判定为准。
      */
     @GetMapping("/estimate")
-    public Map<String, Object> estimate(@org.springframework.web.bind.annotation.RequestAttribute("userId") String userId,
+    public Map<String, Object> estimate(@RequestAttribute("userId") String userId,
                                         @RequestParam(defaultValue = "gpt-image-2") String model,
                                         @RequestParam(defaultValue = "auto") String size,
                                         @RequestParam(defaultValue = "high") String quality,
@@ -54,7 +51,7 @@ public class CreditController {
 
     /** 分页返回当前登录用户自己的积分流水，供个人中心展示；userId 强制取 JWT，不可查看他人流水。 */
     @GetMapping("/transactions")
-    public Map<String, Object> transactions(@org.springframework.web.bind.annotation.RequestAttribute("userId") String userId,
+    public Map<String, Object> transactions(@RequestAttribute("userId") String userId,
                                             @RequestParam(required = false) String type,
                                             @RequestParam(defaultValue = "1") int page,
                                             @RequestParam(defaultValue = "20") int size) {

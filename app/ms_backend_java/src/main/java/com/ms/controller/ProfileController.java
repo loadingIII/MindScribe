@@ -1,5 +1,6 @@
 package com.ms.controller;
 
+import com.ms.pojo.dto.ChangePasswordRequest;
 import com.ms.service.AuthService;
 import com.ms.service.ProfileService;
 import jakarta.validation.Valid;
@@ -11,7 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
+import org.springframework.web.bind.annotation.RequestAttribute;
 import java.util.Map;
 
 /** 个人中心接口：聚合信息查询与账号安全（修改密码）；userId 强制取 JWT，仅可操作本人数据。 */
@@ -28,7 +29,7 @@ public class ProfileController {
 
     /** 返回当前登录用户的创作统计、常用配置与最近作品墙数据。 */
     @GetMapping("/summary")
-    public Map<String, Object> summary(@org.springframework.web.bind.annotation.RequestAttribute("userId") String userId,
+    public Map<String, Object> summary(@RequestAttribute("userId") String userId,
                                        @RequestParam(required = false) Integer gallerySize) {
         return profileService.summary(userId, gallerySize);
     }
@@ -38,8 +39,8 @@ public class ProfileController {
      * 已知限制：JWT 无版本号机制，已签发的会话不会因改密码失效。
      */
     @PostMapping("/password")
-    public ResponseEntity<?> changePassword(@Valid @RequestBody com.ms.pojo.dto.ChangePasswordRequest request,
-                                            @org.springframework.web.bind.annotation.RequestAttribute("userId") String userId) {
+    public ResponseEntity<?> changePassword(@Valid @RequestBody ChangePasswordRequest request,
+                                            @RequestAttribute("userId") String userId) {
         try {
             boolean updated = authService.updatePassword(userId, request.oldPassword(), request.newPassword());
             if (!updated) return ResponseEntity.status(HttpStatus.NOT_FOUND)
