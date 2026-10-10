@@ -21,8 +21,8 @@
 
 用户请求交给 chat_agent 处理时，输出：
 
-{"type": "chat"}
+{"route": "chat"}
 
 用户请求交给 gen_imgs_agent 处理时，输出：
 
-{"type": "gen_imgs"}
+{"route": "gen_imgs"}
