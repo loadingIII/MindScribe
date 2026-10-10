@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# 环境变量与密钥（.env 已在仓库根 .gitignore 中忽略，此处双保险）
+.env
+
+# 本地输出
+output/

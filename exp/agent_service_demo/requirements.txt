@@ -1,0 +1,19 @@
+# 智能体 Demo 服务依赖
+#
+# 安装（建议在独立虚拟环境中）：
+#   pip install -r exp/agent_service_demo/requirements.txt
+
+# Web 框架与 ASGI 服务器
+fastapi>=0.115
+uvicorn>=0.30
+
+# LLM 编排框架
+langchain>=1.0
+langchain-openai>=1.0
+langgraph>=1.0
+
+# 环境变量加载
+python-dotenv>=1.0
+
+# 测试框架
+pytest>=8.0
