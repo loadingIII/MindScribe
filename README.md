@@ -1,6 +1,7 @@
 # MindScribe
 
-MindScribe 是一个面向创作与知识整理的全栈应用，当前包含 React Web 前端、Spring Boot 业务后端，以及用于图片生成的 FastAPI 推理服务。项目仍在持续开发中，部分页面和接口使用模拟数据。
+MindScribe 是一个面向创作与知识整理的全栈应用，当前包含 React Web 前端、Spring Boot 业务后端，以及用于图片生成的 FastAPI 推理服务。项目仍在持续开发中。
+目前已经在一个小服务器上部署了，作为一个内测，相关请参考https://hcnkq7ezi4pu.feishu.cn/wiki/J1Caw0UZ6iH0jakdXDUcNN5en3b
 
 ## 项目结构
 
